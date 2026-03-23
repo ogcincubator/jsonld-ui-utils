@@ -30,11 +30,15 @@ jobs:
       - name: Build project
         run: yarn build
 
+      - name: Pack npm tarball
+        run: npm pack && mv jsonld-ui-utils-*.tgz jsonld-ui-utils.tgz
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.js
             dist/*.map
+            jsonld-ui-utils.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

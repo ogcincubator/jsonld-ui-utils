@@ -12,18 +12,18 @@ A JavaScript/TypeScript library that renders JSON-LD feature data as interactive
 
 ## Installation
 
-This package is not published to npm. Install it directly from GitHub:
+This package is not published to npm. Install the latest release directly from GitHub:
 
 ```bash
-npm install github:avillar/jsonld-ui-utils
+npm install https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.tgz
 # or
-yarn add github:avillar/jsonld-ui-utils
+yarn add https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.tgz
 ```
 
-To pin to a specific release, append the tag:
+To pin to a specific version, replace `latest/download` with `download/v0.1.6`:
 
 ```bash
-npm install github:avillar/jsonld-ui-utils#v0.1.6
+npm install https://github.com/avillar/jsonld-ui-utils/releases/download/v0.1.6/jsonld-ui-utils.tgz
 ```
 
 > **Note:** [`rdflib`](https://www.npmjs.com/package/rdflib) is a peer dependency and must be installed separately:
