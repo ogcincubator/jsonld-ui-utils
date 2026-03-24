@@ -1,5 +1,5 @@
 {
-  "name": "jsonld-ui-utils",
+  "name": "@opengeospatial/jsonld-ui-utils",
   "version": "0.1.9",
   "type": "module",
   "main": "dist/index.cjs.js",
@@ -39,5 +39,8 @@
     "preview": "vite preview",
     "prepare": "if [ \"$YARN_IGNORE_PREPARE\" != \"true\" ]; then rollup -c; fi"
   },
-  "peerDependencies": {}
+  "peerDependencies": {},
+  "files": [
+    "dist/"
+  ]
 }
