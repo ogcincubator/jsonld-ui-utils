@@ -1,7 +1,6 @@
 import {loadContext} from "./jsonld";
 import {descriptionPredicates, labelPredicates} from "./constants";
 import * as N3 from 'n3';
-import * as jsonldLib from 'jsonld';
 import { RdfXmlParser } from 'rdfxml-streaming-parser';
 
 export interface FetchResourceOptions {
@@ -76,8 +75,10 @@ function parseTurtle(text: string, baseIRI: string, contentType: string): Promis
 }
 
 async function parseJsonLd(text: string, baseIRI: string): Promise<N3.Store> {
+  const jsonldMod = await import('jsonld') as any;
+  if (!jsonldMod) throw new Error('jsonld peer dependency is not available');
   const doc = JSON.parse(text);
-  const nquads = await (jsonldLib as any).toRDF(doc, {format: 'application/n-quads', base: baseIRI});
+  const nquads = await jsonldMod.toRDF(doc, {format: 'application/n-quads', base: baseIRI});
   return parseTurtle(nquads, baseIRI, 'application/n-quads');
 }
 
