@@ -46,3 +46,6 @@ jobs:
   pages:
     needs: build
     uses: ./.github/workflows/pages.yml
+    permissions:
+      pages: write
+      id-token: write
