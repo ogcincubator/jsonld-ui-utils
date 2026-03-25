@@ -1,6 +1,5 @@
 # Node / Yarn
 node_modules/
-dist/
 build/
 .cache/
 .yarn/*
