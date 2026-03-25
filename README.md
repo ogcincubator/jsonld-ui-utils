@@ -1,4 +1,4 @@
-# jsonld-ui-utils
+# @opengeospatial/jsonld-ui-utils
 
 A JavaScript/TypeScript library that renders JSON-LD feature data as interactive HTML tables and enriches them with semantic metadata (labels, descriptions) fetched from RDF sources.
 
@@ -9,32 +9,35 @@ A JavaScript/TypeScript library that renders JSON-LD feature data as interactive
 - Fetch RDF metadata (labels, descriptions) for resolved URIs
 - Multiple fallback mechanisms: direct fetch, [RAINBOW](https://github.com/ogcincubator/rainbow) proxy, SPARQL endpoint
 - Built-in caching to avoid redundant network requests
+- [Leaflet](https://leafletjs.com/) plugin for GeoJSON layers with automatic popup tables
 
 ## Installation
 
-This package is not published to npm. Install the latest release directly from GitHub:
-
 ```bash
-npm install https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.tgz
+npm install https://github.com/avillar/jsonld-ui-utils/releases/latest/download/opengeospatial-jsonld-ui-utils.tgz
 # or
-yarn add https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.tgz
+yarn add https://github.com/avillar/jsonld-ui-utils/releases/latest/download/opengeospatial-jsonld-ui-utils.tgz
 ```
 
-To pin to a specific version, replace `latest/download` with `download/v0.1.6`:
+To pin to a specific version, replace `latest/download` with e.g. `download/v0.2.0`.
+
+### Optional peer dependencies
+
+[`jsonld`](https://www.npmjs.com/package/jsonld) is an optional peer dependency. Install it if you need to fetch and resolve JSON-LD contexts by URL:
 
 ```bash
-npm install https://github.com/avillar/jsonld-ui-utils/releases/download/v0.1.6/jsonld-ui-utils.tgz
+npm install jsonld
 ```
 
-> **Note:** [`rdflib`](https://www.npmjs.com/package/rdflib) is a peer dependency and must be installed separately:
-> ```bash
-> npm install rdflib
-> ```
-
-### Browser (CDN)
+### Browser (IIFE)
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/rdflib@2.3.0/dist/rdflib.min.js"></script>
+<!-- optional: library-provided styles -->
+<link rel="stylesheet" href="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.css"/>
+
+<!-- optional: jsonld peer dep (needed for context URL resolution) -->
+<script src="https://cdn.jsdelivr.net/npm/jsonld@8/dist/jsonld.min.js"></script>
+
 <script src="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.min.js"></script>
 ```
 
@@ -45,15 +48,13 @@ This exposes `jsonldUIUtils` as a global variable.
 ### Quick start
 
 ```javascript
-import jsonldUIUtils from 'jsonld-ui-utils';
+import { loadFeature, createPropertiesTable, augment } from '@opengeospatial/jsonld-ui-utils';
 
-const { feature, context } = await jsonldUIUtils.loadFeature(
-  'https://example.org/features/my-feature.json'
-);
+const { feature, context } = await loadFeature('https://example.org/features/my-feature.json');
 
 const container = document.getElementById('feature');
-jsonldUIUtils.createPropertiesTable(feature, container);
-await jsonldUIUtils.augment(container, context);
+createPropertiesTable(feature, container);
+await augment(container, context);
 ```
 
 ### Step by step
@@ -61,7 +62,7 @@ await jsonldUIUtils.augment(container, context);
 #### 1. Load a JSON-LD feature
 
 ```javascript
-const { feature, context } = await jsonldUIUtils.loadFeature(featureUrl);
+const { feature, context } = await loadFeature(featureUrl);
 ```
 
 `loadFeature` fetches the document at `featureUrl`, extracts its `@context`, recursively loads and merges any referenced context URLs, and returns both the raw feature object and the resolved context.
@@ -70,30 +71,33 @@ const { feature, context } = await jsonldUIUtils.loadFeature(featureUrl);
 
 ```javascript
 const container = document.getElementById('feature');
-jsonldUIUtils.createPropertiesTable(feature, container);
+createPropertiesTable(feature, container);
 ```
 
 This builds a nested HTML table structure inside `container`. By default it reads from the `properties` field of the feature object. Pass `propertiesField: null` to use the entire feature object instead:
 
 ```javascript
-jsonldUIUtils.createPropertiesTable(feature, container, { propertiesField: null });
+createPropertiesTable(feature, container, { propertiesField: null });
 ```
 
 The generated elements carry CSS classes you can style:
 
 | Class | Applied to |
 |---|---|
+| `.object-properties` | Wrapper `<div>` around the top-level table |
 | `.object-table` | `<table>` elements |
 | `.object-property` | Property name cells |
 | `.object-value` | Property value cells |
 | `.literal-value` | Scalar (non-object) values |
 | `.array-entry` | Entries within an array value |
 
+Include `dist/jsonld-ui-utils.css` (or the CDN link above) for default styling of these classes.
+
 #### 3. Augment with semantic metadata
 
 ```javascript
-await jsonldUIUtils.augment(container, context, {
-  fallbackSparqlEndpoint: 'https://example.org/sparql',
+await augment(container, context, {
+  fallbackSparqlEndpoints: 'https://example.org/sparql',
 });
 ```
 
@@ -121,13 +125,10 @@ During and after augmentation, elements receive additional CSS classes:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `replaceElements` | `boolean` | `true` | Replace element text with the resolved label. |
-| `labelPredicates` | `(NamedNode \| string)[]` | SKOS prefLabel, DCT/DC title, SDO/FOAF name, RDFS label | RDF predicates checked when extracting a label. |
-| `descriptionPredicates` | `(NamedNode \| string)[]` | SKOS definition, DCT/DC description, RDFS comment | RDF predicates checked when extracting a description. |
+| `labelPredicates` | `string[]` | SKOS prefLabel, DCT/DC title, SDO/FOAF name, RDFS label | RDF predicates checked when extracting a label. |
+| `descriptionPredicates` | `string[]` | SKOS definition, DCT/DC description, RDFS comment | RDF predicates checked when extracting a description. |
 | `fallbackRainbowInstances` | `string \| string[]` | — | One or more RAINBOW proxy base URLs tried in order when a direct fetch returns no label. |
 | `fallbackSparqlEndpoints` | `string \| string[]` | — | One or more SPARQL endpoint URLs tried in order as a last resort (`DESCRIBE <uri>`). |
-| `acceptedContentTypes` | `object` | Turtle, N-Triples, RDF/XML, anot+Turtle | RDF content types to accept, mapped to `true` or a normalised type string. |
-
-> **Note:** The singular aliases `fallbackRainbowInstance` and `fallbackSparqlEndpoint` are still accepted for backward compatibility and behave as a single-element list appended after any values provided via the plural options.
 
 ### Lower-level API
 
@@ -144,8 +145,8 @@ interface ResourceData {
 ```
 
 ```javascript
-const data = await jsonldUIUtils.fetchResource('https://example.org/vocab/MyTerm', {
-  fallbackSparqlEndpoint: 'https://example.org/sparql',
+const data = await fetchResource('https://example.org/vocab/MyTerm', {
+  fallbackSparqlEndpoints: 'https://example.org/sparql',
 });
 console.log(data.label); // e.g. "My Term"
 ```
@@ -155,58 +156,76 @@ console.log(data.label); // e.g. "My Term"
 Load and merge one or more JSON-LD contexts. Accepts a context object, a URL string, or an array of either:
 
 ```javascript
-const merged = await jsonldUIUtils.loadContext([
+const merged = await loadContext([
   'https://example.org/context1.json',
   'https://example.org/context2.json',
 ]);
 ```
 
-### Named exports
+---
 
-In addition to the default export you can import individual functions:
+## Leaflet plugin
+
+The Leaflet plugin creates a `L.GeoJSON` layer that automatically renders popup tables for each feature and augments them with RDF metadata.
+
+### Installation
+
+```bash
+npm install https://github.com/avillar/jsonld-ui-utils/releases/latest/download/opengeospatial-jsonld-ui-utils.tgz
+```
+
+Import the plugin entry point:
 
 ```javascript
-import {
-  createPropertiesTable,
-  augment,
-  fetchResource,
-  loadFeature,
-  loadContext,
-} from 'jsonld-ui-utils';
+import { createJsonLDGeoJSONLayer } from '@opengeospatial/jsonld-ui-utils/leaflet';
 ```
 
-## Browser example
+### Browser (IIFE)
 
 ```html
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    .object-table { border-collapse: collapse; width: 100%; }
-    .object-property { font-weight: bold; padding: 4px 8px; vertical-align: top; }
-    .object-value { padding: 4px 8px; }
-    .resource-resolved { cursor: help; }
-  </style>
-</head>
-<body>
-  <div id="feature"></div>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.css"/>
 
-  <script src="https://cdn.jsdelivr.net/npm/rdflib@2.3.0/dist/rdflib.min.js"></script>
-  <script src="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.min.js"></script>
-  <script>
-    jsonldUIUtils
-      .loadFeature('https://example.org/features/sensor.json')
-      .then(({ feature, context }) => {
-        const root = document.getElementById('feature');
-        jsonldUIUtils.createPropertiesTable(feature, root);
-        return jsonldUIUtils.augment(root, context, {
-          fallbackSparqlEndpoint: 'https://example.org/sparql',
-        });
-      });
-  </script>
-</body>
-</html>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils-leaflet.min.js"></script>
 ```
+
+This exposes `jsonldUIUtilsLeaflet` as a global variable.
+
+### Usage
+
+```javascript
+const layer = createJsonLDGeoJSONLayer(L, geojsonData, {
+  ldContext: 'https://example.org/context.jsonld',
+  popupOptions: { maxWidth: 420 },
+  augmentOptions: {
+    fallbackSparqlEndpoints: 'https://example.org/sparql',
+  },
+});
+
+layer.addTo(map);
+```
+
+For the IIFE build, call `jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, data, options)`.
+
+### Behaviour
+
+- Each feature with a non-empty `properties` object gets a popup with a rendered table.
+- If the feature has an `id`, it is shown as a hover tooltip automatically.
+- The popup table is augmented with RDF labels/descriptions when `ldContext` is provided.
+
+### Options (`JsonLDGeoJSONOptions`)
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `ldContext` | `string \| object \| array` | — | JSON-LD context (URL, object, or array) used to resolve property URIs. |
+| `popupOptions` | `object` | `{ maxWidth: 400 }` | Options passed to Leaflet's `bindPopup`. |
+| `augmentOptions` | `object` | `{}` | Options passed to `augment()` (see above). |
+| `onEachFeature` | `function` | — | Called for every feature before the plugin's own logic, matching Leaflet's `onEachFeature` signature. |
+
+Any other options are forwarded to `L.geoJSON`.
+
+---
 
 ## Building from source
 

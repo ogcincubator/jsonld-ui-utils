@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>JSON-LD UI enhancer</title>
+    <style>
+
+    </style>
+  </head>
+  <body>
+    <h1>JSON-LD UI enhancer Demo</h1>
+    <div id="feature"></div>
+    <script src="https://cdn.jsdelivr.net/npm/rdflib@2.3.0/dist/rdflib.min.js"></script>
+    <script src="https://github.com/avillar/jsonld-ui-utils/releases/latest/download/jsonld-ui-utils.min.js"></script>
+    <script>
+      jsonldUIUtils.loadFeature('https://ogcincubator.github.io/bblocks-examples/build/tests/bbr/examples/observation/vectorObservationFeature/example_1_1.jsonld')
+              .then(({feature, context}) => {
+                const rootElem = document.getElementById('feature');
+                jsonldUIUtils.createPropertiesTable(feature, rootElem);
+                jsonldUIUtils.augment(rootElem, context, {
+                  fallbackSparqlEndpoint: 'https://defs-hosted.opengis.net/prez-hosted-b/sparql',
+                });
+              });
+    </script>
+  </body>
+</html>

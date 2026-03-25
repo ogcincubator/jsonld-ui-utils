@@ -1,0 +1,45 @@
+.object-properties {
+  width: 100%;
+  overflow: auto;
+}
+
+.object-table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+.object-table th {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 2px solid #ccc;
+  white-space: nowrap;
+}
+
+.object-property,
+.object-value {
+  padding: 3px 8px;
+  vertical-align: top;
+}
+
+.object-property {
+  white-space: nowrap;
+  font-weight: 500;
+  color: #555;
+}
+
+.object-table tr:nth-child(odd) > td {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.resource-loading {
+  opacity: 0.5;
+}
+
+.resource-link {
+  color: #0066cc;
+}
+
+.resource-error {
+  color: #cc0000;
+}

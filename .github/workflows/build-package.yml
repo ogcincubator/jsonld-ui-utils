@@ -38,6 +38,7 @@ jobs:
         with:
           files: |
             dist/*.js
+            dist/*.css
             dist/*.map
             jsonld-ui-utils.tgz
         env:

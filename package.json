@@ -6,11 +6,16 @@
   "module": "dist/index.esm.js",
   "browser": "dist/jsonld-ui-utils.min.js",
   "exports": {
-    "import": "./dist/index.esm.js",
-    "require": "./dist/index.cjs.js"
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js"
+    },
+    "./leaflet": {
+      "import": "./dist/leaflet.esm.js",
+      "require": "./dist/leaflet.cjs.js"
+    }
   },
   "dependencies": {
-    "jsonld": "^8.3.2",
     "n3": "^1.23.1",
     "rdfxml-streaming-parser": "^2.4.0"
   },
@@ -23,9 +28,9 @@
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-typescript": "^12.3.0",
     "@types/jsonld": "^1.5.15",
+    "jsonld": "^8.3.2",
     "@types/n3": "^1.21.1",
     "baseline-browser-mapping": "^2.10.10",
-    "core-js": "^3.46.0",
     "rollup": "^4.53.2",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "rollup-plugin-terser": "^7.0.2",
@@ -34,12 +39,23 @@
     "vite": "^7.2.2"
   },
   "scripts": {
-    "build": "rollup -c",
+    "build": "rollup -c && cp src/jsonld-ui-utils.css dist/",
     "dev": "vite --open",
     "preview": "vite preview",
-    "prepare": "if [ \"$YARN_IGNORE_PREPARE\" != \"true\" ]; then rollup -c; fi"
+    "prepare": "if [ \"$YARN_IGNORE_PREPARE\" != \"true\" ]; then rollup -c && cp src/jsonld-ui-utils.css dist/; fi"
   },
-  "peerDependencies": {},
+  "peerDependencies": {
+    "jsonld": ">=8.0.0",
+    "leaflet": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "jsonld": {
+      "optional": true
+    },
+    "leaflet": {
+      "optional": true
+    }
+  },
   "files": [
     "dist/"
   ]

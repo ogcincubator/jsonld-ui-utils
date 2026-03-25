@@ -57,10 +57,13 @@ export function createPropertiesTable(feature: { [index: string]: any }, contain
       return table;
     }
   };
+  const wrapper = document.createElement('div');
+  wrapper.classList.add('object-properties');
+  container.appendChild(wrapper);
   if (options.propertiesField) {
-    createLevel(container, feature[options.propertiesField], true);
+    createLevel(wrapper, feature[options.propertiesField], true);
   } else {
-    createLevel(container, feature, true);
+    createLevel(wrapper, feature, true);
   }
 }
 

@@ -2,9 +2,9 @@ import {ContextDefinition} from 'jsonld';
 
 type OrArray<T> = T | T[];
 
-type Context = OrArray<null | string | ContextDefinition>;
+export type Context = OrArray<null | string | ContextDefinition>;
 
-type ContextObject = {
+export type ContextObject = {
   "@context": Context;
 }
 
