@@ -124,7 +124,7 @@ During and after augmentation, elements receive additional CSS classes:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `propertiesField` | `string \| null` | `'properties'` | Property on `feature` to use as the root object. Set to `null` to use the entire feature. |
+| `propertiesField` | `string` or `null` | `'properties'` | Property on `feature` to use as the root object. Set to `null` to use the entire feature. |
 
 #### `augment(rootElem, context, options?)`
 
@@ -133,8 +133,8 @@ During and after augmentation, elements receive additional CSS classes:
 | `replaceElements` | `boolean` | `true` | Replace element text with the resolved label. |
 | `labelPredicates` | `string[]` | SKOS prefLabel, DCT/DC title, SDO/FOAF name, RDFS label | RDF predicates checked when extracting a label. |
 | `descriptionPredicates` | `string[]` | SKOS definition, DCT/DC description, RDFS comment | RDF predicates checked when extracting a description. |
-| `fallbackRainbowInstances` | `string \| string[]` | — | One or more RAINBOW proxy base URLs tried in order when a direct fetch returns no label. |
-| `fallbackSparqlEndpoints` | `string \| string[]` | — | One or more SPARQL endpoint URLs tried in order as a last resort (`DESCRIBE <uri>`). |
+| `fallbackRainbowInstances` | `string` or `string[]` | — | One or more RAINBOW proxy base URLs tried in order when a direct fetch returns no label. |
+| `fallbackSparqlEndpoints` | `string` or `string[]` | — | One or more SPARQL endpoint URLs tried in order as a last resort (`DESCRIBE <uri>`). |
 
 ### Lower-level API
 
@@ -216,7 +216,7 @@ layer.addTo(map);
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `ldContext` | `string \| object \| array` | — | JSON-LD context (URL, object, or array) used to resolve property URIs. |
+| `ldContext` | `string`, `object`, or `array` | — | JSON-LD context (URL, object, or array) used to resolve property URIs. |
 | `popupOptions` | `object` | `{ maxWidth: 400 }` | Options passed to Leaflet's `bindPopup`. |
 | `augmentOptions` | `object` | `{}` | Options passed to `augment()` (see above). |
 | `onEachFeature` | `function` | — | Called for every feature before the plugin's own logic, matching Leaflet's `onEachFeature` signature. |
