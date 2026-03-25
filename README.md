@@ -227,6 +227,11 @@ Any other options are forwarded to `L.geoJSON`.
 
 ---
 
+## Demos
+
+- [Basic demo](https://avillar.github.io/jsonld-ui-utils/demo/index.html) — renders a JSON-LD feature as an augmented properties table
+- [Leaflet demo](https://avillar.github.io/jsonld-ui-utils/demo/leaflet.html) — GeoJSON layer with popup tables and RDF augmentation
+
 ## Building from source
 
 ```bash

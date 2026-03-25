@@ -3,14 +3,13 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*' # Runs when you push a version tag like v1.0.0
-
-permissions:
-  contents: write
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -43,3 +42,7 @@ jobs:
             jsonld-ui-utils.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  pages:
+    needs: build
+    uses: ./.github/workflows/pages.yml

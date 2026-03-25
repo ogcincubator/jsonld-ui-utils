@@ -1,0 +1,58 @@
+name: Deploy GitHub Pages
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install pandoc
+        run: sudo apt-get install -y pandoc
+
+      - name: Build Pages site
+        run: |
+          mkdir -p _site
+          cat > /tmp/page.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>$title$</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown-light.css">
+            <style>
+              .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+              @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+            </style>
+          </head>
+          <body class="markdown-body">
+          $body$
+          </body>
+          </html>
+          EOF
+          pandoc README.md \
+            --template /tmp/page.html \
+            --metadata title="@opengeospatial/jsonld-ui-utils" \
+            -o _site/index.html
+          cp -r demo _site/demo
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
