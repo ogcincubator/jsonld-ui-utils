@@ -31,15 +31,13 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
-        env:
-          YARN_IGNORE_PREPARE: 'true'
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Pack npm tarball
-        run: npm pack && mv opengeospatial-jsonld-ui-utils-*.tgz jsonld-ui-utils.tgz
+        run: npm pack --ignore-scripts && mv opengeospatial-jsonld-ui-utils-*.tgz jsonld-ui-utils.tgz
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish jsonld-ui-utils.tgz --provenance --access public
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
