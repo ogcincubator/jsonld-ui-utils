@@ -22,9 +22,9 @@ yarn add github:avillar/jsonld-ui-utils
 To pin to a specific version:
 
 ```bash
-npm install github:avillar/jsonld-ui-utils#v0.2.5
+npm install github:avillar/jsonld-ui-utils#v0.2.6
 # or
-yarn add github:avillar/jsonld-ui-utils#v0.2.5
+yarn add github:avillar/jsonld-ui-utils#v0.2.6
 ```
 
 ### Optional peer dependencies
@@ -39,12 +39,12 @@ npm install jsonld
 
 ```html
 <!-- optional: library-provided styles -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.5/dist/jsonld-ui-utils.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.6/dist/jsonld-ui-utils.css"/>
 
 <!-- optional: jsonld peer dep (needed for context URL resolution) -->
 <script src="https://cdn.jsdelivr.net/npm/jsonld@8/dist/jsonld.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.5/dist/jsonld-ui-utils.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.6/dist/jsonld-ui-utils.min.js"></script>
 ```
 
 This exposes `jsonldUIUtils` as a global variable.
@@ -184,10 +184,10 @@ import { createJsonLDGeoJSONLayer } from '@opengeospatial/jsonld-ui-utils/leafle
 
 ```html
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.5/dist/jsonld-ui-utils.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.6/dist/jsonld-ui-utils.css"/>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.5/dist/jsonld-ui-utils-leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/avillar/jsonld-ui-utils@v0.2.6/dist/jsonld-ui-utils-leaflet.min.js"></script>
 ```
 
 This exposes `jsonldUIUtilsLeaflet` as a global variable.
