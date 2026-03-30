@@ -58,6 +58,10 @@
       "optional": true
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ogcincubator/jsonld-ui-utils"
+  },
   "files": [
     "dist/"
   ]
