@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -27,6 +28,7 @@ jobs:
         with:
           node-version: '22'
           cache: yarn
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         env:
@@ -35,6 +37,9 @@ jobs:
 
       - name: Pack npm tarball
         run: npm pack && mv opengeospatial-jsonld-ui-utils-*.tgz jsonld-ui-utils.tgz
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
