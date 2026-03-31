@@ -44,7 +44,7 @@
     "dev": "vite --open",
     "preview": "vite preview",
     "prepare": "if [ \"$YARN_IGNORE_PREPARE\" != \"true\" ]; then BUILD_DIR=dist rollup -c && cp src/jsonld-ui-utils.css dist/; fi",
-    "version": "yarn build:release && sed -i \"s|cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@[0-9.]*|cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@$npm_package_version|g\" README.md && git add dist/ README.md"
+    "version": "yarn build:release && git add dist/"
   },
   "peerDependencies": {
     "jsonld": ">=8.0.0",

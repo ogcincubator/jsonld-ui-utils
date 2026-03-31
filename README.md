@@ -31,12 +31,12 @@ npm install jsonld
 
 ```html
 <!-- optional: library-provided styles -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@0.2.7/dist/jsonld-ui-utils.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils.css"/>
 
 <!-- optional: jsonld peer dep (needed for context URL resolution) -->
 <script src="https://cdn.jsdelivr.net/npm/jsonld@8/dist/jsonld.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@0.2.7/dist/jsonld-ui-utils.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils.min.js"></script>
 ```
 
 This exposes `jsonldUIUtils` as a global variable.
@@ -176,10 +176,10 @@ import { createJsonLDGeoJSONLayer } from '@opengeospatial/jsonld-ui-utils/leafle
 
 ```html
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@0.2.7/dist/jsonld-ui-utils.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils.css"/>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@0.2.7/dist/jsonld-ui-utils-leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils-leaflet.min.js"></script>
 ```
 
 This exposes `jsonldUIUtilsLeaflet` as a global variable.
