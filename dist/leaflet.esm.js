@@ -125,8 +125,19 @@ const ACCEPT_HEADER = [
     'application/ld+json',
     'application/rdf+xml',
 ].join(', ');
-function findInStore(store, subjectUri, predicates) {
+function getUserLanguages() {
     var _a;
+    if (typeof navigator !== 'undefined' && ((_a = navigator.languages) === null || _a === void 0 ? void 0 : _a.length)) {
+        return Array.from(navigator.languages);
+    }
+    try {
+        return [Intl.DateTimeFormat().resolvedOptions().locale];
+    }
+    catch (_b) {
+        return [];
+    }
+}
+function findInStore(store, subjectUri, predicates, userLangs = getUserLanguages()) {
     const subj = N3.DataFactory.namedNode(subjectUri);
     for (const predUri of predicates) {
         const quads = store
@@ -135,9 +146,23 @@ function findInStore(store, subjectUri, predicates) {
         if (!quads.length) {
             continue;
         }
-        const en = quads.find(q => q.object.language === 'en');
+        for (const lang of userLangs) {
+            const base = lang.split('-')[0].toLowerCase();
+            const match = quads.find(q => {
+                var _a;
+                const qLang = (_a = q.object.language) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+                return qLang === lang.toLowerCase() || (qLang === null || qLang === void 0 ? void 0 : qLang.split('-')[0]) === base;
+            });
+            if (match) {
+                return match.object.value;
+            }
+        }
         const noLang = quads.find(q => !q.object.language);
-        return ((_a = en !== null && en !== void 0 ? en : noLang) !== null && _a !== void 0 ? _a : quads[0]).object.value;
+        if (noLang) {
+            return noLang.object.value;
+        }
+        const en = quads.find(q => { var _a; return ((_a = q.object.language) === null || _a === void 0 ? void 0 : _a.toLowerCase()) === 'en'; });
+        return (en !== null && en !== void 0 ? en : quads[0]).object.value;
     }
     return null;
 }

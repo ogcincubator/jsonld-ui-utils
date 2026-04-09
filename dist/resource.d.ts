@@ -1,3 +1,4 @@
+import * as N3 from 'n3';
 export interface FetchResourceOptions {
     labelPredicates: string[];
     descriptionPredicates: string[];
@@ -15,6 +16,7 @@ export interface ResourceData {
     label: string | null;
     description?: string | null;
 }
+export declare function findInStore(store: N3.Store, subjectUri: string, predicates: string[], userLangs?: string[]): string | null;
 export declare function fetchResource(uri: string, options?: Partial<FetchResourceOptions>): Promise<ResourceData>;
 export declare function loadFeature(url: string): Promise<{
     feature: any;
