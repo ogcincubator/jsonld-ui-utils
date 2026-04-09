@@ -26,14 +26,18 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: yarn
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Pack npm tarball
         run: npm pack --ignore-scripts && mv opengeospatial-jsonld-ui-utils-*.tgz jsonld-ui-utils.tgz
+
+      - name: Update npm
+        run: npm install -g npm@11.12.1
 
       - name: Publish to npm
         run: npm publish jsonld-ui-utils.tgz --provenance --access public
