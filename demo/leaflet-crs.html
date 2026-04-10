@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>JSON-LD UI Utils — Leaflet CRS Demo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="../src/jsonld-ui-utils.css"/>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #map { height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!--
+    proj4js must be loaded before the plugin so that window.proj4 is available.
+    The plugin will auto-detect the CRS from the data and fetch the EPSG definition
+    from epsg.io if it is not already registered.
+  -->
+  <script src="https://unpkg.com/proj4@latest/dist/proj4.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!--
+    Use the local build: run `yarn build` first to generate dist-local/.
+    Replace with the CDN path once a release is published.
+  -->
+  <script src="../dist-local/jsonld-ui-utils-leaflet.min.js"></script>
+
+  <script>
+    const map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+
+    fetch('./epsg5514-example.geojson')
+      .then(r => r.json())
+      .then(data => jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, data, {
+        popupOptions: {maxWidth: 420},
+      }))
+      .then(layer => {
+        layer.addTo(map);
+        const bounds = layer.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, {padding: [40, 40]});
+      })
+      .catch(err => console.error('Failed to load layer:', err));
+  </script>
+</body>
+</html>

@@ -10,7 +10,7 @@ const DIST = process.env.BUILD_DIR ?? 'dist-local';
 
 // IIFE bundles everything; ESM/CJS leaves runtime deps external so consumers' bundlers can deduplicate
 const MODULE_EXTERNALS = ['n3', 'jsonld', 'rdfxml-streaming-parser'];
-const LEAFLET_MODULE_EXTERNALS = ['leaflet', ...MODULE_EXTERNALS];
+const LEAFLET_MODULE_EXTERNALS = ['leaflet', 'proj4', ...MODULE_EXTERNALS];
 
 // Shims for the IIFE browser build.
 //  - 'node:*': rdfxml-streaming-parser uses node:-prefixed builtins; strip the prefix so
@@ -26,9 +26,11 @@ const browserShims = {
     if (id === 'util/types') return '\0shim:util-types';
     if (id === 'stream/web') return '\0shim:stream-web';
     if (id === 'jsonld') return '\0shim:jsonld';
+    if (id === 'proj4') return '\0shim:proj4';
   },
   load(id) {
     if (id === '\0shim:jsonld') return `export default typeof jsonld !== 'undefined' ? jsonld : undefined;`;
+    if (id === '\0shim:proj4') return `export default typeof proj4 !== 'undefined' ? proj4 : undefined;`;
     if (id === '\0shim:util-types') return `
 export function isUint8Array(v) { return v instanceof Uint8Array; }
 export function isAnyArrayBuffer(v) { return v instanceof ArrayBuffer || (typeof SharedArrayBuffer !== 'undefined' && v instanceof SharedArrayBuffer); }

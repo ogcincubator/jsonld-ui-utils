@@ -2,6 +2,7 @@
 
 var N3 = require('n3');
 var rdfxmlStreamingParser = require('rdfxml-streaming-parser');
+var proj4Lib = require('proj4');
 
 function _interopNamespaceDefault(e) {
     var n = Object.create(null);
@@ -546,9 +547,206 @@ async function augment(rootElem, context, options = {}) {
     augmentInner(rootElem, [context]);
 }
 
-function createJsonLDGeoJSONLayer(L, data, options = {}) {
-    const { ldContext, popupOptions = { maxWidth: 400 }, augmentOptions = {}, onEachFeature: userOnEachFeature, ...geoJSONOptions } = options;
-    return L.geoJSON(data, {
+const WGS84_EPSG_CODES = new Set([4326, 4979]);
+const proj4DefCache = new Map();
+function extractEpsgCode(uri) {
+    // http(s)://www.opengis.net/def/crs/EPSG/0/5514
+    let m = uri.match(/\/crs\/EPSG\/[^/]+\/(\d+)$/i);
+    if (m)
+        return parseInt(m[1], 10);
+    // urn:ogc:def:crs:EPSG::5514
+    m = uri.match(/urn:ogc:def:crs:EPSG::(\d+)$/i);
+    if (m)
+        return parseInt(m[1], 10);
+    // EPSG:5514
+    m = uri.match(/^EPSG:(\d+)$/);
+    if (m)
+        return parseInt(m[1], 10);
+    return null;
+}
+function isWgs84(uri) {
+    const code = extractEpsgCode(uri);
+    if (code !== null)
+        return WGS84_EPSG_CODES.has(code);
+    return /\/OGC\/[^/]+\/CRS84h?$/i.test(uri) || /urn:ogc:def:crs:OGC:[^:]*:CRS84h?$/i.test(uri);
+}
+function parseSingleCrs(value) {
+    if (typeof value === 'string') {
+        if (isWgs84(value))
+            return null;
+        const code = extractEpsgCode(value);
+        return code !== null ? { epsgCode: code } : null;
+    }
+    if (value !== null && typeof value === 'object') {
+        const obj = value;
+        if (obj['type'] === 'Reference' && typeof obj['href'] === 'string') {
+            if (isWgs84(obj['href']))
+                return null;
+            const code = extractEpsgCode(obj['href']);
+            if (code === null)
+                return null;
+            return {
+                epsgCode: code,
+                epoch: typeof obj['epoch'] === 'number' ? obj['epoch'] : undefined,
+            };
+        }
+    }
+    return null;
+}
+function parseCoordRefSys(coordRefSys) {
+    if (Array.isArray(coordRefSys)) {
+        for (const item of coordRefSys) {
+            const result = parseSingleCrs(item);
+            if (result !== null)
+                return result;
+        }
+        return null;
+    }
+    return parseSingleCrs(coordRefSys);
+}
+function parseLegacyCrs(crs) {
+    if (!crs || typeof crs !== 'object')
+        return null;
+    const obj = crs;
+    if (obj['type'] !== 'name')
+        return null;
+    const props = obj['properties'];
+    if (!props || typeof props !== 'object')
+        return null;
+    const name = props['name'];
+    if (typeof name !== 'string')
+        return null;
+    if (isWgs84(name))
+        return null;
+    const code = extractEpsgCode(name);
+    return code !== null ? { epsgCode: code } : null;
+}
+/**
+ * Detects the CRS from a GeoJSON/JSON-FG object.
+ *
+ * Checks in priority order:
+ *   1. JSON-FG `coordRefSys` (URI string, Reference object, or compound array)
+ *   2. Legacy GeoJSON `crs` with type "name"
+ *
+ * Returns null if the CRS is WGS84 or cannot be determined (no transform needed).
+ */
+function detectCrs(data) {
+    if (!data || typeof data !== 'object')
+        return null;
+    const obj = data;
+    if ('coordRefSys' in obj) {
+        const result = parseCoordRefSys(obj['coordRefSys']);
+        if (result !== null)
+            return result;
+    }
+    if ('crs' in obj) {
+        const result = parseLegacyCrs(obj['crs']);
+        if (result !== null)
+            return result;
+    }
+    return null;
+}
+/**
+ * Returns a proj4 converter from the given EPSG CRS to WGS84.
+ * Fetches the projection definition from epsg.io if not already registered.
+ */
+async function getProjectionConverter(crsInfo, proj4Instance) {
+    const key = `EPSG:${crsInfo.epsgCode}`;
+    if (crsInfo.epoch !== undefined) {
+        console.warn(`CRS epoch ${crsInfo.epoch} ignored — proj4js does not support coordinate epochs.`);
+    }
+    if (!proj4Instance.defs(key)) {
+        let defStr = proj4DefCache.get(crsInfo.epsgCode);
+        if (!defStr) {
+            const response = await fetch(`https://epsg.io/${crsInfo.epsgCode}.proj4`);
+            if (!response.ok) {
+                throw new Error(`Unknown CRS EPSG:${crsInfo.epsgCode} — could not retrieve a definition from epsg.io (HTTP ${response.status})`);
+            }
+            defStr = (await response.text()).trim();
+            if (!defStr) {
+                throw new Error(`Unknown CRS EPSG:${crsInfo.epsgCode} — epsg.io returned an empty definition`);
+            }
+            proj4DefCache.set(crsInfo.epsgCode, defStr);
+        }
+        proj4Instance.defs(key, defStr);
+    }
+    return proj4Instance(key, 'WGS84');
+}
+function transformCoords(coords, converter) {
+    const projected = converter.forward(coords.slice(0, 2));
+    return coords.length > 2 ? [projected[0], projected[1], coords[2]] : [projected[0], projected[1]];
+}
+function transformGeometry(geometry, converter) {
+    if (!geometry)
+        return geometry;
+    switch (geometry.type) {
+        case 'Point':
+            return { ...geometry, coordinates: transformCoords(geometry.coordinates, converter) };
+        case 'MultiPoint':
+        case 'LineString':
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((c) => transformCoords(c, converter)),
+            };
+        case 'MultiLineString':
+        case 'Polygon':
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((r) => r.map((c) => transformCoords(c, converter))),
+            };
+        case 'MultiPolygon':
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((p) => p.map((r) => r.map((c) => transformCoords(c, converter)))),
+            };
+        case 'GeometryCollection':
+            return {
+                ...geometry,
+                geometries: geometry.geometries.map((g) => transformGeometry(g, converter)),
+            };
+        default:
+            return geometry;
+    }
+}
+/**
+ * Deep-clones and transforms all geometries in a FeatureCollection or Feature
+ * from the given CRS to WGS84. Per the JSON-FG scoping rules, individual features
+ * may carry their own `coordRefSys` that overrides the collection-level one.
+ */
+async function transformFeatureCollection(data, collectionCrs, proj4Instance) {
+    var _a;
+    const collectionConverter = await getProjectionConverter(collectionCrs, proj4Instance);
+    const transformFeature = async (feature) => {
+        const featureCrs = detectCrs(feature);
+        let converter = collectionConverter;
+        if (featureCrs !== null && featureCrs.epsgCode !== collectionCrs.epsgCode) {
+            converter = await getProjectionConverter(featureCrs, proj4Instance);
+        }
+        return { ...feature, geometry: transformGeometry(feature.geometry, converter) };
+    };
+    if (data.type === 'FeatureCollection') {
+        return { ...data, features: await Promise.all(((_a = data.features) !== null && _a !== void 0 ? _a : []).map(transformFeature)) };
+    }
+    if (data.type === 'Feature') {
+        return transformFeature(data);
+    }
+    return data;
+}
+
+async function createJsonLDGeoJSONLayer(L, data, options = {}) {
+    const { ldContext, popupOptions = { maxWidth: 400 }, augmentOptions = {}, onEachFeature: userOnEachFeature, coordRefSys: coordRefSysOverride, proj4: proj4Override, ...geoJSONOptions } = options;
+    let geoData = data;
+    const crsInfo = coordRefSysOverride
+        ? detectCrs({ coordRefSys: coordRefSysOverride })
+        : detectCrs(data);
+    if (crsInfo !== null) {
+        const proj4Instance = proj4Override !== null && proj4Override !== void 0 ? proj4Override : proj4Lib;
+        if (!proj4Instance) {
+            throw new Error('proj4js is required for CRS transformation — include it via <script src="..."> or install it as a dependency');
+        }
+        geoData = await transformFeatureCollection(data, crsInfo, proj4Instance);
+    }
+    return L.geoJSON(geoData, {
         ...geoJSONOptions,
         onEachFeature(feature, layer) {
             if (userOnEachFeature)

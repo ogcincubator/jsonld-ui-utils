@@ -99,17 +99,17 @@
       maxZoom: 19,
     }).addTo(map);
 
-    const layer = jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, features, {
+    jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, features, {
       ldContext: CONTEXT,
       popupOptions: { maxWidth: 420 },
       augmentOptions: {
         fallbackSparqlEndpoints: 'https://defs-hosted.opengis.net/prez-hosted-b/sparql',
       },
+    }).then(layer => {
+      layer.addTo(map);
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, {padding: [40, 40]});
     });
-
-    layer.addTo(map);
-    const bounds = layer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds, {padding: [40, 40]});
   </script>
 </body>
 </html>

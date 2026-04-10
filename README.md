@@ -27,6 +27,12 @@ yarn add @opengeospatial/jsonld-ui-utils
 npm install jsonld
 ```
 
+[`proj4`](https://www.npmjs.com/package/proj4) is an optional peer dependency required only when using the Leaflet plugin with non-WGS84 data:
+
+```bash
+npm install proj4
+```
+
 ### Browser (IIFE)
 
 ```html
@@ -178,6 +184,9 @@ import { createJsonLDGeoJSONLayer } from '@opengeospatial/jsonld-ui-utils/leafle
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils.css"/>
 
+<!-- optional: required only for non-WGS84 data (must come before the plugin) -->
+<script src="https://unpkg.com/proj4@latest/dist/proj4.js"></script>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@opengeospatial/jsonld-ui-utils@latest/dist/jsonld-ui-utils-leaflet.min.js"></script>
 ```
@@ -186,8 +195,10 @@ This exposes `jsonldUIUtilsLeaflet` as a global variable.
 
 ### Usage
 
+`createJsonLDGeoJSONLayer` returns a `Promise<L.GeoJSON>`:
+
 ```javascript
-const layer = jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, geojsonData, {
+const layer = await createJsonLDGeoJSONLayer(L, geojsonData, {
   ldContext: 'https://example.org/context.jsonld',
   popupOptions: { maxWidth: 420 },
   augmentOptions: {
@@ -198,11 +209,49 @@ const layer = jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, geojsonData, {
 layer.addTo(map);
 ```
 
+Or with `.then()`:
+
+```javascript
+createJsonLDGeoJSONLayer(L, geojsonData, options).then(layer => {
+  layer.addTo(map);
+  map.fitBounds(layer.getBounds());
+});
+```
+
 ### Behaviour
 
 - Each feature with a non-empty `properties` object gets a popup with a rendered table.
 - If the feature has an `id`, it is shown as a hover tooltip automatically.
 - The popup table is augmented with RDF labels/descriptions when `ldContext` is provided.
+- For WGS84 data the function resolves immediately with no additional network requests.
+
+### CRS support (beta)
+
+The plugin can render data in coordinate reference systems other than WGS84 by transforming geometries to WGS84 before passing them to Leaflet.
+
+The CRS is detected automatically from the input data in priority order:
+
+1. **JSON-FG `coordRefSys`** — a URI string, a `{ "type": "Reference", "href": "...", "epoch": ... }` object, or an array of these (compound CRS; the first EPSG entry is used)
+2. **Legacy GeoJSON `crs`** — `{ "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::XXXX" } }`
+
+If the detected CRS is not already registered with proj4, the plugin fetches its definition from [epsg.io](https://epsg.io) on first use and caches it for the lifetime of the page.
+
+**Requirements:** [proj4js](https://proj4js.org/) must be available. In ESM/CJS projects install it as a peer dependency (`npm install proj4`). In browser IIFE usage, load the proj4 script before the plugin (see snippet above) so that `window.proj4` is present.
+
+```javascript
+// CRS is read automatically from data.crs or data.coordRefSys
+const layer = await createJsonLDGeoJSONLayer(L, dataInEpsg5514, options);
+
+// Or supply a CRS explicitly, bypassing auto-detection:
+const layer = await createJsonLDGeoJSONLayer(L, data, {
+  ...options,
+  coordRefSys: 'EPSG:5514',
+});
+```
+
+Per the JSON-FG scoping rules, a `coordRefSys` on an individual feature overrides the collection-level value for that feature's geometry.
+
+> **Note:** Coordinate epochs (present on some dynamic CRS references) are not supported by proj4js and are silently ignored with a console warning.
 
 ### Options (`JsonLDGeoJSONOptions`)
 
@@ -212,6 +261,8 @@ layer.addTo(map);
 | `popupOptions` | `object` | `{ maxWidth: 400 }` | Options passed to Leaflet's `bindPopup`. |
 | `augmentOptions` | `object` | `{}` | Options passed to `augment()` (see above). |
 | `onEachFeature` | `function` | — | Called for every feature before the plugin's own logic, matching Leaflet's `onEachFeature` signature. |
+| `coordRefSys` | `string` | — | Override CRS detection with an explicit URI (e.g. `"EPSG:5514"`). |
+| `proj4` | `object` | — | Inject a specific proj4 instance instead of using the auto-resolved one. |
 
 Any other options are forwarded to `L.geoJSON`.
 
@@ -221,6 +272,7 @@ Any other options are forwarded to `L.geoJSON`.
 
 - [Basic demo](https://ogcincubator.github.io/jsonld-ui-utils/demo/index.html) — renders a JSON-LD feature as an augmented properties table
 - [Leaflet demo](https://ogcincubator.github.io/jsonld-ui-utils/demo/leaflet.html) — GeoJSON layer with popup tables and RDF augmentation
+- [Leaflet CRS demo](https://ogcincubator.github.io/jsonld-ui-utils/demo/leaflet-crs.html) — GeoJSON layer in EPSG:5514 (Czech S-JTSK), auto-detected and reprojected to WGS84
 
 ## Building from source
 
