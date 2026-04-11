@@ -31,8 +31,8 @@ const mergeContexts = (definitions) => {
     }
     return currentContext;
 };
+const urlCache = new Map();
 async function loadContext(context) {
-    const loadedUrls = new Map();
     const walk = async (definition, refChain) => {
         for (const [key, value] of Object.entries(definition)) {
             if (key === '@context') {
@@ -63,15 +63,10 @@ async function loadContext(context) {
             }
             const newRefChain = Array.isArray(refChain) ? refChain === null || refChain === void 0 ? void 0 : refChain.slice() : [];
             newRefChain.push(context);
-            let newContext;
-            if (!loadedUrls.has(context)) {
-                newContext = await jsonFetch(context);
-                loadedUrls.set(context, newContext);
+            if (!urlCache.has(context)) {
+                urlCache.set(context, jsonFetch(context).then(obj => load(obj['@context'], newRefChain)));
             }
-            else {
-                newContext = loadedUrls.get(context);
-            }
-            return load(newContext['@context'], newRefChain);
+            return urlCache.get(context);
         }
     };
     if (typeof context === 'object' && context !== null && '@context' in context) {
