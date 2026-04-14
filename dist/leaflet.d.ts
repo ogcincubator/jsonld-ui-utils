@@ -9,6 +9,11 @@ export interface JsonLDGeoJSONOptions {
     coordRefSys?: string;
     /** Inject a proj4 instance. Useful in environments where window.proj4 is not available. */
     proj4?: any;
+    /**
+     * When true (default), adds a Leaflet layer attribution showing the original CRS
+     * whenever coordinates are transformed from a non-WGS84 CRS.
+     */
+    crsAttribution?: boolean;
     [key: string]: any;
 }
 export declare function createJsonLDGeoJSONLayer(L: any, data: any, options?: JsonLDGeoJSONOptions): Promise<any>;

@@ -708,7 +708,7 @@ async function transformFeatureCollection(data, collectionCrs, proj4Instance) {
 }
 
 async function createJsonLDGeoJSONLayer(L, data, options = {}) {
-    const { ldContext, popupOptions = { maxWidth: 400 }, augmentOptions = {}, onEachFeature: userOnEachFeature, coordRefSys: coordRefSysOverride, proj4: proj4Override, ...geoJSONOptions } = options;
+    const { ldContext, popupOptions = { maxWidth: 400 }, augmentOptions = {}, onEachFeature: userOnEachFeature, coordRefSys: coordRefSysOverride, proj4: proj4Override, crsAttribution = true, ...geoJSONOptions } = options;
     let geoData = data;
     const crsInfo = coordRefSysOverride
         ? detectCrs({ coordRefSys: coordRefSysOverride })
@@ -720,8 +720,15 @@ async function createJsonLDGeoJSONLayer(L, data, options = {}) {
         }
         geoData = await transformFeatureCollection(data, crsInfo, proj4Instance);
     }
+    const crsAttributionText = crsAttribution && crsInfo !== null
+        ? `Original CRS: EPSG:${crsInfo.epsgCode}`
+        : null;
+    const mergedAttribution = [geoJSONOptions.attribution, crsAttributionText]
+        .filter(Boolean)
+        .join(' | ') || undefined;
     return L.geoJSON(geoData, {
         ...geoJSONOptions,
+        ...(mergedAttribution !== undefined ? { attribution: mergedAttribution } : {}),
         onEachFeature(feature, layer) {
             if (userOnEachFeature)
                 userOnEachFeature(feature, layer);
