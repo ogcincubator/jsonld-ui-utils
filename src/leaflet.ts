@@ -12,6 +12,11 @@ export interface JsonLDGeoJSONOptions {
   coordRefSys?: string;
   /** Inject a proj4 instance. Useful in environments where window.proj4 is not available. */
   proj4?: any;
+  /**
+   * When true (default), adds a Leaflet layer attribution showing the original CRS
+   * whenever coordinates are transformed from a non-WGS84 CRS.
+   */
+  crsAttribution?: boolean;
   [key: string]: any;
 }
 
@@ -23,6 +28,7 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
     onEachFeature: userOnEachFeature,
     coordRefSys: coordRefSysOverride,
     proj4: proj4Override,
+    crsAttribution = true,
     ...geoJSONOptions
   } = options;
 
@@ -41,8 +47,18 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
     geoData = await transformFeatureCollection(data, crsInfo, proj4Instance);
   }
 
+  const crsAttributionText =
+    crsAttribution && crsInfo !== null
+      ? `Original CRS: EPSG:${crsInfo.epsgCode}`
+      : null;
+
+  const mergedAttribution = [geoJSONOptions.attribution, crsAttributionText]
+    .filter(Boolean)
+    .join(' | ') || undefined;
+
   return L.geoJSON(geoData, {
     ...geoJSONOptions,
+    ...(mergedAttribution !== undefined ? {attribution: mergedAttribution} : {}),
     onEachFeature(feature: any, layer: any) {
       if (userOnEachFeature) userOnEachFeature(feature, layer);
 
