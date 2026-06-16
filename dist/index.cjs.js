@@ -456,6 +456,17 @@ async function augment(rootElem, context, options = {}) {
                 return { '@id': `${closestBase}${term}` };
             }
         }
+        else {
+            const idx = term.indexOf(':');
+            const prefix = term.substring(0, idx);
+            const localPart = term.substring(idx + 1);
+            if (!localPart.startsWith('//')) {
+                const resolvedPrefix = resolveTerm(prefix, contextStack);
+                if (resolvedPrefix !== null && '@id' in resolvedPrefix && typeof resolvedPrefix['@id'] === 'string') {
+                    return { '@id': `${resolvedPrefix['@id']}${localPart}` };
+                }
+            }
+        }
         return null;
     };
     const findPropertyChildren = (elem) => {
