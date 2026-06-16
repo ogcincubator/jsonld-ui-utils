@@ -751,8 +751,13 @@ async function createJsonLDGeoJSONLayer(L, data, options = {}) {
             const container = document.createElement('div');
             createPropertiesTable(feature, container);
             layer.bindPopup(container, popupOptions);
-            if (ldContext) {
-                loadContext(ldContext).then((resolvedContext) => {
+            const dataContext = data != null && typeof data === 'object' && '@context' in data
+                ? data['@context']
+                : null;
+            const contextsToMerge = [dataContext, ldContext].filter(v => v != null);
+            if (contextsToMerge.length > 0) {
+                const contextArg = contextsToMerge.length === 1 ? contextsToMerge[0] : contextsToMerge;
+                loadContext(contextArg).then((resolvedContext) => {
                     augment(container, resolvedContext, augmentOptions);
                 });
             }
