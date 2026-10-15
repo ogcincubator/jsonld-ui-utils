@@ -1,6 +1,6 @@
 {
   "name": "@opengeospatial/jsonld-ui-utils",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
@@ -21,7 +21,6 @@
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
-    "proj4": "^2.0.0",
     "@babel/preset-env": "^7.28.5",
     "@rollup/plugin-babel": "^6.1.0",
     "@rollup/plugin-commonjs": "^29.0.0",
@@ -32,6 +31,7 @@
     "@types/n3": "^1.21.1",
     "baseline-browser-mapping": "^2.10.10",
     "jsonld": "^8.3.2",
+    "proj4": "^2.0.0",
     "rollup": "^4.53.2",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "rollup-plugin-terser": "^7.0.2",

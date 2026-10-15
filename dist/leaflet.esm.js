@@ -231,27 +231,47 @@ const fetchAndParse = async (fetchFn, baseIRI) => {
     }
     return null;
 };
-const fetchAndParseDocument = (docUrl, fetchFn) => {
+const fetchAndParseDocument = (docUrl, fetchFn, baseIRI = docUrl) => {
     if (!(docUrl in requestCache)) {
-        requestCache[docUrl] = fetchAndParse(fetchFn, docUrl);
+        requestCache[docUrl] = fetchAndParse(fetchFn, baseIRI);
     }
     return requestCache[docUrl];
+};
+// When running on an https:// page, browsers block http:// requests (mixed content),
+// so the https:// variant of an http:// URI is worth trying first.
+const toHttpsIfMixedContent = (url) => {
+    if (typeof location !== 'undefined' && location.protocol === 'https:' && url.startsWith('http://')) {
+        return 'https://' + url.slice('http://'.length);
+    }
+    return null;
 };
 const findResourceInStore = async (storePromise, uri, options) => {
     const store = await storePromise;
     if (!store) {
         return null;
     }
-    const label = findInStore(store, uri, options.labelPredicates);
-    if (!label) {
-        return null;
+    // The https:// document may identify its subject with either scheme
+    const httpsUri = toHttpsIfMixedContent(uri);
+    for (const subject of httpsUri ? [uri, httpsUri] : [uri]) {
+        const label = findInStore(store, subject, options.labelPredicates);
+        if (label) {
+            return { uri, label, description: findInStore(store, subject, options.descriptionPredicates) };
+        }
     }
-    return { uri, label, description: findInStore(store, uri, options.descriptionPredicates) };
+    return null;
 };
 const actualFetchResource = async (uri, options) => {
     const docUrl = uri.includes('#') ? uri.split('#')[0] : uri;
-    // 1. Direct (cached by document URL so hash siblings share one request)
-    let result = await findResourceInStore(fetchAndParseDocument(docUrl, () => fetch(docUrl, { headers: { 'Accept': ACCEPT_HEADER } })), uri, options);
+    // 1. Direct (cached by document URL so hash siblings share one request).
+    // On an https:// page, an http:// URI is tried as https:// first (the http:// request would be blocked).
+    let result = null;
+    const httpsDocUrl = toHttpsIfMixedContent(docUrl);
+    if (httpsDocUrl) {
+        result = await findResourceInStore(fetchAndParseDocument(httpsDocUrl, () => fetch(httpsDocUrl, { headers: { 'Accept': ACCEPT_HEADER } }), docUrl), uri, options);
+    }
+    if (!result) {
+        result = await findResourceInStore(fetchAndParseDocument(docUrl, () => fetch(docUrl, { headers: { 'Accept': ACCEPT_HEADER } })), uri, options);
+    }
     // 2. Rainbow proxies (in order) — not supported for hash URIs
     const isHashUri = uri.includes('#');
     for (const instance of [...toArray(options.fallbackRainbowInstances), ...toArray(options.fallbackRainbowInstance)]) {
