@@ -111,6 +111,29 @@ function recenterOnResize(popup: any) {
     popup.update();
     map?.on('resize', updateMaxSize);
     popup.once('remove', () => map?.off('resize', updateMaxSize));
+    // Labels resolved asynchronously change the table's natural width after Leaflet sized the
+    // popup: re-layout, unless the user already sized it by hand (which sets an inline height).
+    const table = (popup.getContent() as HTMLElement | undefined)?.firstElementChild as HTMLElement | null;
+    let lastTableWidth = table?.offsetWidth ?? 0;
+    let relayoutQueued = false;
+    const tableObserver = table ? new ResizeObserver(() => {
+      if (relayoutQueued || Math.abs(table.offsetWidth - lastTableWidth) < 2) {
+        return;
+      }
+      lastTableWidth = table.offsetWidth;
+      relayoutQueued = true;
+      requestAnimationFrame(() => {
+        relayoutQueued = false;
+        if (popup._container && !content.style.height) {
+          popup.update();
+          lastTableWidth = table.offsetWidth;
+        }
+      });
+    }) : null;
+    if (table && tableObserver) {
+      tableObserver.observe(table);
+      popup.once('remove', () => tableObserver.disconnect());
+    }
     observer = new ResizeObserver(() => {
       if (popup._container && typeof popup._updatePosition === 'function') {
         popup._containerWidth = popup._container.offsetWidth;
@@ -128,7 +151,7 @@ function recenterOnResize(popup: any) {
 export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonLDGeoJSONOptions = {}): Promise<any> {
   const {
     ldContext,
-    popupOptions = {maxWidth: 400},
+    popupOptions = {},
     augmentOptions = {},
     onEachFeature: userOnEachFeature,
     coordRefSys: coordRefSysOverride,
@@ -177,7 +200,9 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
       createPropertiesTable(feature, container);
       injectPopupCss();
       const className = [POPUP_CLASS, popupOptions.className].filter(Boolean).join(' ');
-      layer.bindPopup(container, {...popupOptions, className});
+      // Large default maxWidth: the popup adapts to the table's natural width; the CSS cap (a share
+      // of the map size, see recenterOnResize) is what actually bounds it.
+      layer.bindPopup(container, {maxWidth: 10000, ...popupOptions, className});
       recenterOnResize(layer.getPopup());
 
       const dataContext = data != null && typeof data === 'object' && '@context' in data
