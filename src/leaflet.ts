@@ -20,6 +20,82 @@ export interface JsonLDGeoJSONOptions {
   [key: string]: any;
 }
 
+const POPUP_CLASS = 'jsonld-ui-popup';
+
+// Leaflet sets inline width/max-width/max-height on the popup content element, hence !important
+// so that the user-resized inline size wins over those caps.
+const POPUP_CSS = `
+.${POPUP_CLASS} .leaflet-popup-content {
+  overflow: auto;
+  resize: both;
+  box-sizing: border-box;
+  min-width: 150px;
+  min-height: 60px;
+  max-width: 90vw !important;
+  max-height: 80vh !important;
+}
+/* Let the popup content be the single scroll container (otherwise the table's own
+   horizontal scrollbar ends up at the very bottom of a tall popup). */
+.${POPUP_CLASS} .object-properties {
+  overflow: visible;
+  width: max-content;
+  min-width: 100%;
+}
+`;
+
+let popupCssInjected = false;
+
+function injectPopupCss() {
+  if (popupCssInjected || typeof document === 'undefined') {
+    return;
+  }
+  popupCssInjected = true;
+  const style = document.createElement('style');
+  style.setAttribute('data-jsonld-ui-utils', 'popup');
+  style.textContent = POPUP_CSS;
+  document.head.appendChild(style);
+}
+
+// Keeps the popup centered over its anchor (and its tip aligned) when the user drags the resize
+// handle: Leaflet only computes the container offset when the popup is (re)laid out.
+// Uses private Leaflet 1.x fields, hence the defensive guards.
+function recenterOnResize(popup: any) {
+  if (typeof ResizeObserver === 'undefined') {
+    return;
+  }
+  let observer: ResizeObserver | null = null;
+  popup.on('add', () => {
+    const content = popup._contentNode as HTMLElement | undefined;
+    if (!content) {
+      return;
+    }
+    // A drag that starts inside the popup (resize handle, text selection) but is released outside
+    // makes the browser dispatch a `click` on the map, which would close the popup. Swallow it.
+    content.addEventListener('mousedown', () => {
+      const swallowClick = (e: Event) => {
+        if (!popup._container?.contains(e.target as Node)) {
+          e.stopPropagation();
+        }
+      };
+      document.addEventListener('click', swallowClick, true);
+      document.addEventListener('mouseup', () => {
+        setTimeout(() => document.removeEventListener('click', swallowClick, true), 0);
+      }, {once: true, capture: true});
+    });
+    observer = new ResizeObserver(() => {
+      if (popup._container && typeof popup._updatePosition === 'function') {
+        popup._containerWidth = popup._container.offsetWidth;
+        popup._updatePosition();
+      }
+    });
+    observer.observe(content);
+  });
+  popup.on('remove', () => {
+    observer?.disconnect();
+    observer = null;
+  });
+}
+
 export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonLDGeoJSONOptions = {}): Promise<any> {
   const {
     ldContext,
@@ -70,7 +146,10 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
 
       const container = document.createElement('div');
       createPropertiesTable(feature, container);
-      layer.bindPopup(container, popupOptions);
+      injectPopupCss();
+      const className = [POPUP_CLASS, popupOptions.className].filter(Boolean).join(' ');
+      layer.bindPopup(container, {...popupOptions, className});
+      recenterOnResize(layer.getPopup());
 
       const dataContext = data != null && typeof data === 'object' && '@context' in data
         ? (data as any)['@context']
