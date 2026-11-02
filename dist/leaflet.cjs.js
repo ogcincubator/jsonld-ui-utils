@@ -818,15 +818,15 @@ function recenterOnResize(popup) {
                 setTimeout(() => document.removeEventListener('click', swallowClick, true), 0);
             }, { once: true, capture: true });
         });
-        // Cap the popup to the map's own size (e.g. a small inline map), leaving room for the
-        // popup chrome, tip and marker offset.
+        // Cap the popup to the map's own size (e.g. a small inline map): at most 60% of its width and 70% of its height, and
+        // never more than what is left after the popup chrome, tip and marker offset.
         const map = popup._map;
         const updateMaxSize = () => {
             var _a;
             const size = (_a = map === null || map === void 0 ? void 0 : map.getSize) === null || _a === void 0 ? void 0 : _a.call(map);
             if (size && popup._container) {
-                popup._container.style.setProperty('--jsonld-popup-max-width', `${Math.max(150, size.x - 60)}px`);
-                popup._container.style.setProperty('--jsonld-popup-max-height', `${Math.max(100, size.y - 110)}px`);
+                popup._container.style.setProperty('--jsonld-popup-max-width', `${Math.max(150, Math.min(size.x * 0.6, size.x - 60))}px`);
+                popup._container.style.setProperty('--jsonld-popup-max-height', `${Math.max(100, Math.min(size.y * 0.7, size.y - 110))}px`);
             }
         };
         updateMaxSize();
