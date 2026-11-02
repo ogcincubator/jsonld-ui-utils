@@ -769,8 +769,8 @@ const POPUP_CSS = `
   box-sizing: border-box;
   min-width: 150px;
   min-height: 60px;
-  max-width: 90vw !important;
-  max-height: 80vh !important;
+  max-width: var(--jsonld-popup-max-width, 90vw) !important;
+  max-height: var(--jsonld-popup-max-height, 80vh) !important;
 }
 /* Let the popup content be the single scroll container (otherwise the table's own
    horizontal scrollbar ends up at the very bottom of a tall popup). */
@@ -818,6 +818,22 @@ function recenterOnResize(popup) {
                 setTimeout(() => document.removeEventListener('click', swallowClick, true), 0);
             }, { once: true, capture: true });
         });
+        // Cap the popup to the map's own size (e.g. a small inline map), leaving room for the
+        // popup chrome, tip and marker offset.
+        const map = popup._map;
+        const updateMaxSize = () => {
+            var _a;
+            const size = (_a = map === null || map === void 0 ? void 0 : map.getSize) === null || _a === void 0 ? void 0 : _a.call(map);
+            if (size && popup._container) {
+                popup._container.style.setProperty('--jsonld-popup-max-width', `${Math.max(150, size.x - 60)}px`);
+                popup._container.style.setProperty('--jsonld-popup-max-height', `${Math.max(100, size.y - 110)}px`);
+            }
+        };
+        updateMaxSize();
+        // Leaflet already measured the popup (and autopanned) before the caps existed: lay it out again.
+        popup.update();
+        map === null || map === void 0 ? void 0 : map.on('resize', updateMaxSize);
+        popup.once('remove', () => map === null || map === void 0 ? void 0 : map.off('resize', updateMaxSize));
         observer = new ResizeObserver(() => {
             if (popup._container && typeof popup._updatePosition === 'function') {
                 popup._containerWidth = popup._container.offsetWidth;
