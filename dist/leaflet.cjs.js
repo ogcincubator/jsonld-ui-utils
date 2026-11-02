@@ -790,8 +790,7 @@ const POPUP_CSS = `
    horizontal scrollbar ends up at the very bottom of a tall popup). */
 .${POPUP_CLASS} .object-properties {
   overflow: visible;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
 }
 `;
 let popupCssInjected = false;
