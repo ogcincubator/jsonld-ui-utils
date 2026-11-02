@@ -751,6 +751,20 @@ const POPUP_CSS = `
   max-width: var(--jsonld-popup-max-width, 90vw) !important;
   max-height: var(--jsonld-popup-max-height, 80vh) !important;
 }
+/* Keep cells readable: property names (often links once resolved) never wrap, values have a
+   minimum and maximum width and only break inside a word when they have no other choice.
+   Selectors are deliberately specific to win over host page styles for the same classes. */
+.${POPUP_CLASS} .leaflet-popup-content .object-property {
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.${POPUP_CLASS} .leaflet-popup-content .object-value {
+  min-width: 10em;
+  max-width: 30em;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
 /* Let the popup content be the single scroll container (otherwise the table's own
    horizontal scrollbar ends up at the very bottom of a tall popup). */
 .${POPUP_CLASS} .object-properties {
