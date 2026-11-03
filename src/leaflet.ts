@@ -34,18 +34,26 @@ const POPUP_CSS = `
   max-width: var(--jsonld-popup-max-width, 90vw) !important;
   max-height: var(--jsonld-popup-max-height, 80vh) !important;
 }
-/* Keep cells readable: property names (often links once resolved) never wrap, values have a
-   minimum and maximum width and only break inside a word when they have no other choice.
-   Selectors are deliberately specific to win over host page styles for the same classes. */
+/* Keep cells readable: property names (often links once resolved) never wrap. Width limits apply
+   to leaf text only, never to cells that hold nested tables (those must be free to grow, or the
+   nested table overflows its cell). Selectors are deliberately specific to win over host page
+   styles for the same classes (e.g. max-width / word-break: break-all on .object-value). */
 .${POPUP_CLASS} .leaflet-popup-content .object-property {
   white-space: nowrap;
   word-break: normal;
   overflow-wrap: normal;
 }
 .${POPUP_CLASS} .leaflet-popup-content .object-value {
+  min-width: 0;
+  max-width: none;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.${POPUP_CLASS} .leaflet-popup-content .literal-value {
+  display: inline-block;
+  vertical-align: top;
   min-width: 10em;
   max-width: 30em;
-  word-break: normal;
   overflow-wrap: anywhere;
 }
 /* Let the popup content be the single scroll container (otherwise the table's own

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>JSON-LD UI Utils — Leaflet Popup with Wide/Nested Content</title>
+  <title>JSON-LD UI Utils — Leaflet Popup with Wide/Nested Content (SeaDOTS)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <link rel="stylesheet" href="../src/jsonld-ui-utils.css"/>
   <style>
@@ -15,35 +15,330 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="../dist-local/jsonld-ui-utils-leaflet.min.js"></script>
   <script>
-    // Popups with deeply nested objects and very long property names/values: the popup content
-    // should scroll in both directions and be resizable via the bottom-right handle.
+    // Real-world example with deeply nested properties and long values (SeaDOTS reef-effect).
+    // The popup content should scroll in both directions and be resizable via the bottom-right handle.
+    const CONTEXT = 'https://ogcincubator.github.io/bblocks-seadots/build/annotated/hosted/seadots/reef-effect/context.jsonld';
     const data = {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        id: 'wide-and-deep',
-        geometry: {type: 'Point', coordinates: [2.17, 41.38]},
-        properties: {
-          name: 'Feature with wide and deeply nested properties',
-          aVeryLongPropertyNameThatKeepsGoingAndGoingAndWouldNormallyOverflowThePopupWindow: 'short value',
-          shortKey: 'AVeryLongUnbrokenValueThatHasNoSpacesAtAllAndKeepsGoingForQuiteAWhileToTestWordBreaking0123456789',
-          level1: {
-            level2: {
-              level3: {
-                level4: {
-                  level5: {
-                    level6: {
-                      someDeeplyNestedPropertyWithAnotherQuiteLongName: 'deep value',
-                      anotherDeepOne: ['a', 'b', {c: {d: {e: 'nested in array'}}}],
-                    },
-                  },
-                },
-              },
-            },
+      "id": "https://example.org/norwegian-ses/reef-effect/utsira-reef-biomass-surroundings-v1",
+      "type": "Feature",
+      "itemType": "record",
+      "conformsTo": [
+        "https://docs.ogc.org/is/20-004/20-004.html",
+        "http://www.w3.org/TR/prov-o/",
+        "bblocks://ogc.hosted.seadots.catalog-workflow",
+        "bblocks://ogc.hosted.seadots.reef-effect"
+      ],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              4.2,
+              59.1
+            ],
+            [
+              5.3,
+              59.1
+            ],
+            [
+              5.3,
+              59.7
+            ],
+            [
+              4.2,
+              59.7
+            ],
+            [
+              4.2,
+              59.1
+            ]
+          ]
+        ]
+      },
+      "time": {
+        "interval": [
+          "2026-05-13",
+          "2028-05-13"
+        ],
+        "resolution": "P12M"
+      },
+      "properties": {
+        "type": "Workflow",
+        "softwareType": "SoftwareSourceCode",
+        "title": "Utsira surroundings — reef-biomass experiment",
+        "description": "Experiment record for an executable run of the Utsira reef-biomass calculation over the surroundings of Utsira island. Realises the one-submodel ODD demonstrator `utsira_reef_biomass_demonstrator` and the canonical equation record `reef-biomass-equation`. Inputs and outputs are referenced by URI as standalone per-class input records and `reef-effect-output` records. The executable is a self-contained Python reproducibility script (`scripts/utsira_reef_biomass.py`).",
+        "applicationCategory": "DigitalTwinApplication",
+        "version": "0.2",
+        "method": "Evaluate the deterministic reef-biomass equation B_reef = sum_i (A_sub . D_pre,i . AF_i . C_t) over the Utsira surroundings area using linked per-class input records and produce reef-effect-output records.",
+        "activity": "https://w3id.org/indicators/marine/obs/floating-wind-reef-biomass-effect",
+        "softwareVersion": "0.2",
+        "programmingLanguage": "Python",
+        "applicationPackage": "../scripts/utsira_reef_biomass.py",
+        "inputs": [
+          {
+            "profileId": "ogc.hosted.seadots.area-of-interest",
+            "required": true,
+            "role": "area-of-interest",
+            "description": "Polygon delimiting the study area; defaults to the surroundings of Utsira island."
           },
-          lotsOfRows: Object.fromEntries(Array.from({length: 25}, (_, i) => [`row${i + 1}`, `value ${i + 1}`])),
+          {
+            "profileId": "ogc.hosted.seadots.floating-wind-infrastructure",
+            "required": true,
+            "role": "submerged-infrastructure",
+            "description": "Floating wind infrastructure layout bound to A_{sub}."
+          },
+          {
+            "profileId": "ogc.hosted.seadots.benthic-biomass-density-mareano",
+            "required": true,
+            "role": "primary-benthic-biomass-density",
+            "description": "Primary MAREANO biomass-density baseline bound to D_{pre,i}."
+          },
+          {
+            "profileId": "ogc.hosted.seadots.benthic-biomass-density-imr",
+            "required": false,
+            "role": "fallback-benthic-biomass-density",
+            "description": "IMR fallback biomass-density baseline bound to D_{pre,i}."
+          },
+          {
+            "profileId": "ogc.hosted.seadots.reef-aggregation-index",
+            "required": true,
+            "role": "reef-aggregation-index",
+            "description": "Taxon-specific aggregation factor bound to AF_i."
+          },
+          {
+            "profileId": "ogc.hosted.seadots.colonisation-time-factor",
+            "required": true,
+            "role": "colonisation-time-factor",
+            "description": "Colonisation time factor bound to C_t."
+          }
+        ],
+        "outputs": [
+          {
+            "profileId": "ogc.hosted.seadots.reef-effect-output",
+            "required": true,
+            "role": "reef-biomass-result",
+            "description": "Structured reef-associated biomass output."
+          },
+          {
+            "profileId": "ogc.hosted.seadots.catalog-data",
+            "required": false,
+            "role": "output",
+            "description": "Optional catalog/STAC representation for the run output."
+          }
+        ],
+        "created": "2026-05-18",
+        "updated": "2026-05-19",
+        "language": {
+          "code": "en"
         },
-      }],
+        "license": "https://creativecommons.org/licenses/by/4.0/",
+        "contacts": [
+          {
+            "name": "Utsira biomass upscaler v1",
+            "roles": [
+              "author"
+            ],
+            "organization": "SINTEF Ocean (SeaDOTs)"
+          }
+        ],
+        "themes": [
+          {
+            "concepts": [
+              {
+                "id": "reef-effect",
+                "label": "Floating-wind reef effect"
+              },
+              {
+                "id": "computational-experiment",
+                "label": "Computational experiment"
+              }
+            ],
+            "scheme": "https://id3.seadots.eu/themes"
+          }
+        ],
+        "keywords": [
+          "reef-effect",
+          "Utsira",
+          "surroundings",
+          "reef biomass",
+          "SeaDOTs",
+          "Python"
+        ],
+        "formats": [
+          {
+            "mediaType": "text/x-python"
+          },
+          {
+            "mediaType": "application/geo+json"
+          },
+          {
+            "mediaType": "application/json"
+          }
+        ],
+        "conformsTo": [
+          "https://ogcincubator.github.io/geodcat-ogcapi-records/"
+        ],
+        "experiment": {
+          "kind": "computational",
+          "purpose": "Evaluate the reef-biomass equation B_reef = sum_i (A_sub . D_pre,i . AF_i . C_t) for the surroundings of Utsira island under the Norwegian SES scenario. Inputs are the six per-class input records cited below; outputs are the two reef-effect-output records cited below. The PROV-O provenance record is embedded in the structured result output.",
+          "application": {
+            "href": "bblocks://ogc.hosted.seadots.reef-effect/scripts/utsira_reef_biomass.py",
+            "type": "text/x-python",
+            "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#application",
+            "title": "Utsira reef-biomass calculator (Python script)"
+          },
+          "modelledBy": {
+            "href": "https://w3id.org/ogc/hosted/seadots/odd-protocol/examples/utsira_reef_biomass_demonstrator",
+            "rel": "describedby",
+            "title": "ODD record for the reef-biomass demonstrator"
+          },
+          "evidenceEquation": {
+            "href": "https://w3id.org/ogc/hosted/seadots/equation-property-relationship/examples/reef-biomass-equation",
+            "rel": "cite-as",
+            "title": "Reef-biomass equation — symbol table, bindings, provenance"
+          },
+          "parameters": [
+            {
+              "name": "aoi",
+              "title": "Area of interest",
+              "description": "Polygon delimiting the study area. Defaults to the surroundings of Utsira island.",
+              "parameterSchema": {
+                "format": "application/geo+json"
+              },
+              "vocabularyTerm": "http://www.opengis.net/def/property/OGC/0/area-of-interest"
+            },
+            {
+              "name": "taxon_groups",
+              "title": "TaxonGroup index values",
+              "description": "Scientific names iterated by index i.",
+              "parameterSchema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "vocabularyTerm": "http://rs.tdwg.org/dwc/terms/scientificName"
+            },
+            {
+              "name": "scenario_t0",
+              "title": "Scenario start date",
+              "parameterSchema": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            {
+              "name": "colonisation_months",
+              "title": "Months since installation",
+              "parameterSchema": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "href": "https://example.org/norwegian-ses/area-of-interest/utsira-surroundings",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "AOI — surroundings of Utsira island",
+              "equationBinding": null
+            },
+            {
+              "href": "https://example.org/norwegian-ses/floating-wind-infrastructure/utsira-nord-60x15mw",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "Submerged infrastructure layout — Utsira Nord 60 × 15 MW",
+              "equationBinding": "A_{sub}"
+            },
+            {
+              "href": "https://example.org/norwegian-ses/benthic-biomass-density-mareano/norwegian-shelf",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "MAREANO benthic biomass density — primary baseline",
+              "equationBinding": "D_{pre,i}"
+            },
+            {
+              "href": "https://example.org/norwegian-ses/benthic-biomass-density-imr/ices-iva-fallback",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "IMR benthic biomass baseline — fallback",
+              "equationBinding": "D_{pre,i}"
+            },
+            {
+              "href": "https://example.org/norwegian-ses/reef-aggregation-index/degraer2020-bindings",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "Reef aggregation index bindings",
+              "equationBinding": "AF_i"
+            },
+            {
+              "href": "https://example.org/norwegian-ses/colonisation-time-factor/default-sigmoid",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#input",
+              "title": "Colonisation time factor",
+              "equationBinding": "C_t"
+            }
+          ],
+          "outputs": [
+            {
+              "href": "https://example.org/norwegian-ses/reef-effect-output/reef-biomass-result",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#output",
+              "title": "Reef-associated biomass — structured result"
+            },
+            {
+              "href": "https://example.org/norwegian-ses/reef-effect-output/stac-catalog",
+              "type": "application/json",
+              "rel": "https://w3id.org/ogc/hosted/seadots/reef-effect#output",
+              "title": "STAC catalog for the run"
+            }
+          ],
+          "execution": {
+            "language": "python",
+            "languageVersion": ">=3.9",
+            "dependencies": [],
+            "entrypoint": "python3 _sources/reef-effect/scripts/utsira_reef_biomass.py",
+            "scheduling": "single deterministic pass over taxon_groups (ODD processOverview.scheduling)",
+            "reproducibility": {
+              "seedPolicy": "deterministic — equation is closed-form, no stochastic submodels",
+              "provenance": "PROV-O record embedded in the structured result output"
+            }
+          },
+          "successCriteria": [
+            "B_reef_total > 0 and finite",
+            "Every TaxonGroup has either a MAREANO primary binding or an IMR fallback for every AOI cell; uncovered cells are flagged in PROV",
+            "STAC catalog validates against the SeaDOTs EDITO output conventions",
+            "PROV-O record resolves the equation record and the ODD record by URI"
+          ]
+        }
+      },
+      "links": [
+        {
+          "rel": "describedby",
+          "href": "bblocks://ogc.hosted.seadots.reef-effect",
+          "type": "application/schema+json",
+          "title": "Experiment bblock"
+        },
+        {
+          "rel": "alternate",
+          "href": "bblocks://ogc.hosted.seadots.reef-effect/scripts/utsira_reef_biomass.py",
+          "type": "text/x-python",
+          "title": "Reproducibility script — runs the worked example end-to-end"
+        },
+        {
+          "rel": "related",
+          "href": "https://w3id.org/ogc/hosted/seadots/odd-protocol/examples/utsira_reef_biomass_demonstrator",
+          "type": "application/json",
+          "title": "ODD demonstrator that this experiment realises"
+        },
+        {
+          "rel": "cite-as",
+          "href": "https://w3id.org/ogc/hosted/seadots/equation-property-relationship/examples/reef-biomass-equation",
+          "type": "application/ld+json",
+          "title": "Reef-biomass equation record"
+        }
+      ]
     };
 
     const map = L.map('map');
@@ -52,9 +347,9 @@
       maxZoom: 19,
     }).addTo(map);
 
-    jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, data).then(layer => {
+    jsonldUIUtilsLeaflet.createJsonLDGeoJSONLayer(L, data, {ldContext: CONTEXT}).then(layer => {
       layer.addTo(map);
-      map.fitBounds(layer.getBounds(), {maxZoom: 12});
+      map.fitBounds(layer.getBounds(), {padding: [40, 40]});
     });
   </script>
 </body>
