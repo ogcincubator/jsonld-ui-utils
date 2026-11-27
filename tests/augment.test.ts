@@ -6,7 +6,7 @@ import {loadContext} from '../src/jsonld';
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ok: false})));
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  console.error = () => {};
 });
 afterEach(() => {
   vi.unstubAllGlobals();

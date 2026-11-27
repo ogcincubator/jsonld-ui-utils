@@ -1,5 +1,7 @@
 import {loadContext} from "./jsonld";
 import {descriptionPredicates, labelPredicates} from "./constants";
+import {withRequestSlot} from "./requests";
+import {describeInBatch, isQueryableIri, trackLookup} from "./sparql-batch";
 import * as N3 from 'n3';
 import {RdfXmlParser} from 'rdfxml-streaming-parser';
 
@@ -10,11 +12,20 @@ export interface FetchResourceOptions {
   fallbackRainbowInstances?: string | string[],
   fallbackSparqlEndpoint?: string,    // deprecated: use fallbackSparqlEndpoints
   fallbackSparqlEndpoints?: string | string[],
+  /** Maximum simultaneous HTTP requests. Default: 6 */
+  maxConcurrentRequests?: number,
+  /** Maximum URIs per SPARQL query. Default: 50 */
+  sparqlBatchSize?: number,
+  /** Milliseconds after which a request is abandoned. Default: 10000 */
+  requestTimeout?: number,
 }
 
 export const defaultFetchResourceOptions: FetchResourceOptions = {
   labelPredicates,
   descriptionPredicates,
+  maxConcurrentRequests: 6,
+  sparqlBatchSize: 50,
+  requestTimeout: 10000,
 };
 
 export interface CreatePropertiesTableOptions {
@@ -112,8 +123,10 @@ function parseTurtle(text: string, baseIRI: string, contentType: string): Promis
 }
 
 async function parseJsonLd(text: string, baseIRI: string): Promise<N3.Store> {
-  const jsonldMod = await import('jsonld') as any;
-  if (!jsonldMod) {
+  // jsonld is CommonJS: a dynamic import usually exposes it as the default export
+  const imported = await import('jsonld') as any;
+  const jsonldMod = imported.default ?? imported;
+  if (!jsonldMod?.toRDF) {
     throw new Error('jsonld peer dependency is not available');
   }
   const doc = JSON.parse(text);
@@ -136,38 +149,41 @@ async function parseRdfXml(text: string, baseIRI: string): Promise<N3.Store> {
 const toArray = (val?: string | string[]): string[] =>
   !val ? [] : Array.isArray(val) ? val : [val];
 
-const getSparqlQuery = (uri: string) => `DESCRIBE <${uri}>`;
-
-const fetchAndParse = async (fetchFn: () => Promise<Response>, baseIRI: string): Promise<N3.Store | null> => {
-  let response: Response;
+const fetchAndParse = async (url: string, init: RequestInit, baseIRI: string, options: FetchResourceOptions,
+                             priority = false): Promise<N3.Store | null> => {
   try {
-    response = await fetchFn();
-    if (!response.ok) {
+    // The slot covers reading the body, but not parsing it
+    const received = await withRequestSlot(async signal => {
+      const response = await fetch(url, {...init, signal});
+      if (!response.ok) {
+        return null;
+      }
+      return {
+        contentType: response.headers.get('content-type')?.split(';')[0].trim() || 'text/turtle',
+        text: await response.text(),
+      };
+    }, {limit: options.maxConcurrentRequests!, timeout: options.requestTimeout!, priority});
+    if (!received) {
       return null;
     }
-  } catch {
-    return null;
-  }
-  const contentType = response.headers.get('content-type')?.split(';')[0].trim() || 'text/turtle';
-  const text = await response.text();
-  try {
+    const {contentType, text} = received;
     if (N3_CONTENT_TYPES.has(contentType)) {
-      return parseTurtle(text, baseIRI, contentType);
+      return await parseTurtle(text, baseIRI, contentType);
     }
     if (contentType === 'application/ld+json') {
-      return parseJsonLd(text, baseIRI);
+      return await parseJsonLd(text, baseIRI);
     }
     if (contentType === 'application/rdf+xml') {
-      return parseRdfXml(text, baseIRI);
+      return await parseRdfXml(text, baseIRI);
     }
   } catch {
   }
   return null;
 };
 
-const fetchAndParseDocument = (docUrl: string, fetchFn: () => Promise<Response>, baseIRI = docUrl): Promise<N3.Store | null> => {
+const fetchAndParseDocument = (docUrl: string, options: FetchResourceOptions, baseIRI = docUrl): Promise<N3.Store | null> => {
   if (!(docUrl in requestCache)) {
-    requestCache[docUrl] = fetchAndParse(fetchFn, baseIRI);
+    requestCache[docUrl] = fetchAndParse(docUrl, {headers: {'Accept': ACCEPT_HEADER}}, baseIRI, options);
   }
   return requestCache[docUrl];
 };
@@ -197,24 +213,21 @@ const findResourceInStore = async (storePromise: Promise<N3.Store | null>, uri: 
   return null;
 };
 
-const actualFetchResource = async (uri: string, options: FetchResourceOptions): Promise<ResourceData> => {
+// Direct dereferencing and RAINBOW proxies: one request per URI (or per document)
+const lookupByRequest = async (uri: string, options: FetchResourceOptions): Promise<ResourceData | null> => {
   const docUrl = uri.includes('#') ? uri.split('#')[0] : uri;
 
-  // 1. Direct (cached by document URL so hash siblings share one request).
+  // 1. Direct, only for HTTP(S) URIs (cached by document URL so hash siblings share one request).
   // On an https:// page, an http:// URI is tried as https:// first (the http:// request would be blocked).
   let result: ResourceData | null = null;
-  const httpsDocUrl = toHttpsIfMixedContent(docUrl);
-  if (httpsDocUrl) {
-    result = await findResourceInStore(
-      fetchAndParseDocument(httpsDocUrl, () => fetch(httpsDocUrl, {headers: {'Accept': ACCEPT_HEADER}}), docUrl),
-      uri, options,
-    );
-  }
-  if (!result) {
-    result = await findResourceInStore(
-      fetchAndParseDocument(docUrl, () => fetch(docUrl, {headers: {'Accept': ACCEPT_HEADER}})),
-      uri, options,
-    );
+  if (/^https?:/i.test(uri)) {
+    const httpsDocUrl = toHttpsIfMixedContent(docUrl);
+    if (httpsDocUrl) {
+      result = await findResourceInStore(fetchAndParseDocument(httpsDocUrl, options, docUrl), uri, options);
+    }
+    if (!result) {
+      result = await findResourceInStore(fetchAndParseDocument(docUrl, options), uri, options);
+    }
   }
 
   // 2. Rainbow proxies (in order) — not supported for hash URIs
@@ -225,25 +238,29 @@ const actualFetchResource = async (uri: string, options: FetchResourceOptions): 
     }
     const rainbowURL = new URL(instance);
     rainbowURL.searchParams.set('uri', uri);
-    const rainbowUrlStr = rainbowURL.toString();
-    result = await findResourceInStore(
-      fetchAndParseDocument(rainbowUrlStr, () => fetch(rainbowUrlStr, {headers: {'Accept': ACCEPT_HEADER}})),
-      uri, options,
-    );
+    result = await findResourceInStore(fetchAndParseDocument(rainbowURL.toString(), options), uri, options);
   }
 
-  // 3. SPARQL endpoints (in order) — each DESCRIBE is unique per URI, no request cache
+  return result;
+};
+
+const sparqlQuery = (endpoint: string, options: FetchResourceOptions) => (query: string) =>
+  fetchAndParse(endpoint, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/turtle, application/n-triples'},
+    body: new URLSearchParams({query}).toString(),
+  }, endpoint, options, true);
+
+const actualFetchResource = async (uri: string, options: FetchResourceOptions): Promise<ResourceData> => {
+  let result = await trackLookup(() => lookupByRequest(uri, options));
+
+  // 3. SPARQL endpoints (in order), batching URIs into shared DESCRIBE queries
   for (const endpoint of [...toArray(options.fallbackSparqlEndpoints), ...toArray(options.fallbackSparqlEndpoint)]) {
-    if (result) {
+    if (result || !isQueryableIri(uri)) {
       break;
     }
-    const formBody = new URLSearchParams({query: getSparqlQuery(uri)});
     result = await findResourceInStore(
-      fetchAndParse(() => fetch(endpoint, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/turtle, application/n-triples'},
-        body: formBody.toString(),
-      }), uri),
+      describeInBatch(endpoint, uri, options.sparqlBatchSize!, sparqlQuery(endpoint, options)),
       uri, options,
     );
   }

@@ -140,7 +140,10 @@ During and after augmentation, elements receive additional CSS classes:
 | `labelPredicates` | `string[]` | SKOS prefLabel, DCT/DC title, SDO/FOAF name, RDFS label | RDF predicates checked when extracting a label. |
 | `descriptionPredicates` | `string[]` | SKOS definition, DCT/DC description, RDFS comment | RDF predicates checked when extracting a description. |
 | `fallbackRainbowInstances` | `string` or `string[]` | — | One or more RAINBOW proxy base URLs tried in order when a direct fetch returns no label. |
-| `fallbackSparqlEndpoints` | `string` or `string[]` | — | One or more SPARQL endpoint URLs tried in order as a last resort (`DESCRIBE <uri>`). |
+| `fallbackSparqlEndpoints` | `string` or `string[]` | — | One or more SPARQL endpoint URLs tried in order as a last resort (`DESCRIBE`, several URIs per query). |
+| `maxConcurrentRequests` | `number` | `6` | Maximum simultaneous HTTP requests. |
+| `sparqlBatchSize` | `number` | `50` | Maximum URIs per SPARQL query. A smaller batch is sent once no other lookup is pending, or after 500 ms. |
+| `requestTimeout` | `number` | `10000` | Milliseconds after which a request is abandoned. |
 
 ### Lower-level API
 
