@@ -13,7 +13,8 @@
     "./leaflet": {
       "import": "./dist/leaflet.esm.js",
       "require": "./dist/leaflet.cjs.js"
-    }
+    },
+    "./jsonld-ui-utils.css": "./dist/jsonld-ui-utils.css"
   },
   "dependencies": {
     "n3": "^1.23.1",
