@@ -23,11 +23,22 @@ function _interopNamespaceDefault(e) {
 
 var N3__namespace = /*#__PURE__*/_interopNamespaceDefault(N3);
 
-const jsonFetch = async (url) => {
-    const response = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-    });
-    return await response.json();
+const jsonFetch = async (url, timeout) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status} loading context ${url}`);
+        }
+        return await response.json();
+    }
+    finally {
+        clearTimeout(timer);
+    }
 };
 const mergeContexts = (definitions) => {
     const mergePair = (a, b) => {
@@ -53,49 +64,78 @@ const mergeContexts = (definitions) => {
     return currentContext;
 };
 const urlCache = new Map();
-async function loadContext(context) {
-    const walk = async (definition, refChain) => {
+const resolveUrl = (url, baseUrl) => {
+    try {
+        return new URL(url, baseUrl).toString();
+    }
+    catch (_a) {
+        return url;
+    }
+};
+/**
+ * Loads a context without merging its entries. Remote references are replaced by their contents,
+ * including the scoped contexts of term definitions, which are modified in place.
+ */
+async function loadContextEntries(context, options = {}) {
+    const { requestTimeout = 10000 } = options;
+    const walk = async (definition, refChain, baseUrl) => {
         for (const [key, value] of Object.entries(definition)) {
             if (key === '@context') {
+                const entries = await load(value, refChain, baseUrl);
                 // @ts-ignore
-                definition[key] = await load(value, refChain);
+                definition[key] = entries.length === 1 ? entries[0] : entries;
             }
             else if (typeof value === 'object' && value !== null) {
-                await walk(value, refChain);
+                await walk(value, refChain, baseUrl);
             }
         }
     };
-    const load = async (context, refChain) => {
-        if (context === null || typeof context === 'undefined') {
-            return {};
+    const load = async (context, refChain, baseUrl) => {
+        if (context === undefined) {
+            return [];
+        }
+        if (context === null) {
+            return [null];
         }
         if (Array.isArray(context)) {
-            // fetch and merge
-            const contextEntries = await Promise.all(context.map(e => load(e, refChain)));
-            return mergeContexts(contextEntries);
+            return (await Promise.all(context.map(e => load(e, refChain, baseUrl)))).flat();
         }
-        else if (typeof context === 'object') {
-            await walk(context, refChain);
-            return context;
+        if (typeof context === 'object') {
+            await walk(context, refChain, baseUrl);
+            return [context];
         }
-        else {
-            if (refChain === null || refChain === void 0 ? void 0 : refChain.includes(context)) {
-                throw new Error('Circular dependencies found: ' + refChain.join(' -> ') + ' -> ' + context);
-            }
-            const newRefChain = Array.isArray(refChain) ? refChain === null || refChain === void 0 ? void 0 : refChain.slice() : [];
-            newRefChain.push(context);
-            if (!urlCache.has(context)) {
-                urlCache.set(context, jsonFetch(context).then(obj => load(obj['@context'], newRefChain)));
-            }
-            return urlCache.get(context);
+        const url = resolveUrl(context, baseUrl);
+        if (refChain === null || refChain === void 0 ? void 0 : refChain.includes(url)) {
+            throw new Error('Circular dependencies found: ' + refChain.join(' -> ') + ' -> ' + url);
         }
+        const newRefChain = [...(refChain !== null && refChain !== void 0 ? refChain : []), url];
+        if (!urlCache.has(url)) {
+            // Relative references inside a remote context are resolved against that context's own URL
+            const request = jsonFetch(url, requestTimeout).then(async (obj) => {
+                const entries = await load(obj['@context'], newRefChain, url);
+                // @base is ignored in remote contexts
+                return entries.map(entry => {
+                    if (!entry) {
+                        return entry;
+                    }
+                    const { '@base': _, ...loaded } = entry;
+                    return loaded;
+                });
+            });
+            // Failures are not cached, so that they can be retried
+            request.catch(() => urlCache.delete(url));
+            urlCache.set(url, request);
+        }
+        return urlCache.get(url);
     };
-    if (typeof context === 'object' && context !== null && '@context' in context) {
-        return load(context['@context']);
-    }
-    else {
-        return load(context);
-    }
+    return load(context, undefined, options.baseUrl);
+}
+async function loadContext(context, options = {}) {
+    const unwrapped = typeof context === 'object' && context !== null && '@context' in context
+        ? context['@context']
+        : context;
+    const entries = await loadContextEntries(unwrapped, options);
+    return mergeContexts(entries.map(entry => entry !== null && entry !== void 0 ? entry : {}));
 }
 
 const ns = (base) => (local) => `${base}${local}`;
@@ -120,9 +160,106 @@ const descriptionPredicates = [
     RDFS('comment'),
 ];
 
+// Limits how many HTTP requests run at once, across all lookups
+let active = 0;
+const waiting = [];
+function startWaiting() {
+    while (waiting.length && active < waiting[0].limit) {
+        active++;
+        waiting.shift().start();
+    }
+}
+/**
+ * Runs a task holding one request slot. The task must pass the signal to fetch() and include reading
+ * the response body, so that the slot is held (and the timeout applies) until the request is done.
+ */
+async function withRequestSlot(task, { limit, timeout, priority = false }) {
+    await new Promise(start => {
+        // Priority requests queue up behind earlier priority ones, ahead of everything else
+        const firstNormal = priority ? waiting.findIndex(entry => !entry.priority) : -1;
+        waiting.splice(firstNormal < 0 ? waiting.length : firstNormal, 0, { limit: Math.max(1, limit), priority, start });
+        startWaiting();
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        return await task(controller.signal);
+    }
+    finally {
+        clearTimeout(timer);
+        active--;
+        startWaiting();
+    }
+}
+
+// Collects URIs into one DESCRIBE query per endpoint. A batch is sent when the first of these happens:
+// it is full, no earlier lookup is pending (so nothing else can join soon), or MAX_WAIT has passed.
+const MAX_WAIT = 500;
+const batches = {};
+let pendingLookups = 0;
+let idleCheckScheduled = false;
+// Deferred, so that URIs arriving in the same burst end up in the same batch
+function scheduleIdleCheck() {
+    if (idleCheckScheduled) {
+        return;
+    }
+    idleCheckScheduled = true;
+    setTimeout(() => {
+        idleCheckScheduled = false;
+        if (!pendingLookups) {
+            Object.values(batches).forEach(batch => batch.send());
+        }
+    }, 0);
+}
+/** Tracks the lookup stages that run before SPARQL, and can therefore still feed a batch */
+async function trackLookup(lookup) {
+    pendingLookups++;
+    try {
+        return await lookup();
+    }
+    finally {
+        pendingLookups--;
+        scheduleIdleCheck();
+    }
+}
+// Characters not allowed inside <...> in SPARQL: one such URI would break the query for its whole batch
+const isQueryableIri = (uri) => /^[a-z][a-z0-9+.-]*:[^\u0000- <>"{}|^`\\]*$/i.test(uri);
+function createBatch(endpoint, sendQuery) {
+    const uris = [];
+    let resolve;
+    const result = new Promise(r => resolve = r);
+    const batch = {
+        uris,
+        result,
+        send() {
+            clearTimeout(timer);
+            delete batches[endpoint];
+            resolve(sendQuery(`DESCRIBE ${uris.map(uri => `<${uri}>`).join(' ')}`));
+        },
+    };
+    const timer = setTimeout(batch.send, MAX_WAIT);
+    return batch;
+}
+/** Resolves with the response to the query that included this URI */
+function describeInBatch(endpoint, uri, batchSize, sendQuery) {
+    var _a;
+    const batch = (_a = batches[endpoint]) !== null && _a !== void 0 ? _a : (batches[endpoint] = createBatch(endpoint, sendQuery));
+    batch.uris.push(uri);
+    if (batch.uris.length >= batchSize) {
+        batch.send();
+    }
+    else {
+        scheduleIdleCheck();
+    }
+    return batch.result;
+}
+
 const defaultFetchResourceOptions = {
     labelPredicates,
     descriptionPredicates,
+    maxConcurrentRequests: 6,
+    sparqlBatchSize: 50,
+    requestTimeout: 10000,
 };
 const fetchResourceCache = {};
 const requestCache = {};
@@ -202,8 +339,11 @@ function parseTurtle(text, baseIRI, contentType) {
     });
 }
 async function parseJsonLd(text, baseIRI) {
-    const jsonldMod = await import('jsonld');
-    if (!jsonldMod) {
+    var _a;
+    // jsonld is CommonJS: a dynamic import usually exposes it as the default export
+    const imported = await import('jsonld');
+    const jsonldMod = (_a = imported.default) !== null && _a !== void 0 ? _a : imported;
+    if (!(jsonldMod === null || jsonldMod === void 0 ? void 0 : jsonldMod.toRDF)) {
         throw new Error('jsonld peer dependency is not available');
     }
     const doc = JSON.parse(text);
@@ -222,39 +362,41 @@ async function parseRdfXml(text, baseIRI) {
     });
 }
 const toArray = (val) => !val ? [] : Array.isArray(val) ? val : [val];
-const getSparqlQuery = (uri) => `DESCRIBE <${uri}>`;
-const fetchAndParse = async (fetchFn, baseIRI) => {
-    var _a;
-    let response;
+const fetchAndParse = async (url, init, baseIRI, options, priority = false) => {
     try {
-        response = await fetchFn();
-        if (!response.ok) {
+        // The slot covers reading the body, but not parsing it
+        const received = await withRequestSlot(async (signal) => {
+            var _a;
+            const response = await fetch(url, { ...init, signal });
+            if (!response.ok) {
+                return null;
+            }
+            return {
+                contentType: ((_a = response.headers.get('content-type')) === null || _a === void 0 ? void 0 : _a.split(';')[0].trim()) || 'text/turtle',
+                text: await response.text(),
+            };
+        }, { limit: options.maxConcurrentRequests, timeout: options.requestTimeout, priority });
+        if (!received) {
             return null;
         }
-    }
-    catch (_b) {
-        return null;
-    }
-    const contentType = ((_a = response.headers.get('content-type')) === null || _a === void 0 ? void 0 : _a.split(';')[0].trim()) || 'text/turtle';
-    const text = await response.text();
-    try {
+        const { contentType, text } = received;
         if (N3_CONTENT_TYPES.has(contentType)) {
-            return parseTurtle(text, baseIRI, contentType);
+            return await parseTurtle(text, baseIRI, contentType);
         }
         if (contentType === 'application/ld+json') {
-            return parseJsonLd(text, baseIRI);
+            return await parseJsonLd(text, baseIRI);
         }
         if (contentType === 'application/rdf+xml') {
-            return parseRdfXml(text, baseIRI);
+            return await parseRdfXml(text, baseIRI);
         }
     }
-    catch (_c) {
+    catch (_a) {
     }
     return null;
 };
-const fetchAndParseDocument = (docUrl, fetchFn, baseIRI = docUrl) => {
+const fetchAndParseDocument = (docUrl, options, baseIRI = docUrl) => {
     if (!(docUrl in requestCache)) {
-        requestCache[docUrl] = fetchAndParse(fetchFn, baseIRI);
+        requestCache[docUrl] = fetchAndParse(docUrl, { headers: { 'Accept': ACCEPT_HEADER } }, baseIRI, options);
     }
     return requestCache[docUrl];
 };
@@ -281,17 +423,20 @@ const findResourceInStore = async (storePromise, uri, options) => {
     }
     return null;
 };
-const actualFetchResource = async (uri, options) => {
+// Direct dereferencing and RAINBOW proxies: one request per URI (or per document)
+const lookupByRequest = async (uri, options) => {
     const docUrl = uri.includes('#') ? uri.split('#')[0] : uri;
-    // 1. Direct (cached by document URL so hash siblings share one request).
+    // 1. Direct, only for HTTP(S) URIs (cached by document URL so hash siblings share one request).
     // On an https:// page, an http:// URI is tried as https:// first (the http:// request would be blocked).
     let result = null;
-    const httpsDocUrl = toHttpsIfMixedContent(docUrl);
-    if (httpsDocUrl) {
-        result = await findResourceInStore(fetchAndParseDocument(httpsDocUrl, () => fetch(httpsDocUrl, { headers: { 'Accept': ACCEPT_HEADER } }), docUrl), uri, options);
-    }
-    if (!result) {
-        result = await findResourceInStore(fetchAndParseDocument(docUrl, () => fetch(docUrl, { headers: { 'Accept': ACCEPT_HEADER } })), uri, options);
+    if (/^https?:/i.test(uri)) {
+        const httpsDocUrl = toHttpsIfMixedContent(docUrl);
+        if (httpsDocUrl) {
+            result = await findResourceInStore(fetchAndParseDocument(httpsDocUrl, options, docUrl), uri, options);
+        }
+        if (!result) {
+            result = await findResourceInStore(fetchAndParseDocument(docUrl, options), uri, options);
+        }
     }
     // 2. Rainbow proxies (in order) — not supported for hash URIs
     const isHashUri = uri.includes('#');
@@ -301,20 +446,23 @@ const actualFetchResource = async (uri, options) => {
         }
         const rainbowURL = new URL(instance);
         rainbowURL.searchParams.set('uri', uri);
-        const rainbowUrlStr = rainbowURL.toString();
-        result = await findResourceInStore(fetchAndParseDocument(rainbowUrlStr, () => fetch(rainbowUrlStr, { headers: { 'Accept': ACCEPT_HEADER } })), uri, options);
+        result = await findResourceInStore(fetchAndParseDocument(rainbowURL.toString(), options), uri, options);
     }
-    // 3. SPARQL endpoints (in order) — each DESCRIBE is unique per URI, no request cache
+    return result;
+};
+const sparqlQuery = (endpoint, options) => (query) => fetchAndParse(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/turtle, application/n-triples' },
+    body: new URLSearchParams({ query }).toString(),
+}, endpoint, options, true);
+const actualFetchResource = async (uri, options) => {
+    let result = await trackLookup(() => lookupByRequest(uri, options));
+    // 3. SPARQL endpoints (in order), batching URIs into shared DESCRIBE queries
     for (const endpoint of [...toArray(options.fallbackSparqlEndpoints), ...toArray(options.fallbackSparqlEndpoint)]) {
-        if (result) {
+        if (result || !isQueryableIri(uri)) {
             break;
         }
-        const formBody = new URLSearchParams({ query: getSparqlQuery(uri) });
-        result = await findResourceInStore(fetchAndParse(() => fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/turtle, application/n-triples' },
-            body: formBody.toString(),
-        }), uri), uri, options);
+        result = await findResourceInStore(describeInBatch(endpoint, uri, options.sparqlBatchSize, sparqlQuery(endpoint, options)), uri, options);
     }
     if (!result) {
         throw new Error(`No label data found for <${uri}>`);
@@ -329,175 +477,241 @@ async function fetchResource(uri, options = {}) {
     return fetchResourceCache[uri];
 }
 
+const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+function pushContext(stack, context) {
+    if (Array.isArray(context)) {
+        return context.reduce(pushContext, stack);
+    }
+    if (context === null) {
+        return [];
+    }
+    return typeof context === 'object' ? [...stack, context] : stack;
+}
+// Each @base is resolved against the previous one, starting at the document's base URL
+function resolveBase(stack, baseUrl) {
+    return stack.reduce((base, context) => {
+        if (!has(context, '@base')) {
+            return base;
+        }
+        const value = context['@base'];
+        if (value === null) {
+            return null;
+        }
+        try {
+            return new URL(value, base !== null && base !== void 0 ? base : undefined).toString();
+        }
+        catch (_a) {
+            return null;
+        }
+    }, baseUrl);
+}
+// Innermost value of a context entry; undefined if no context in the stack declares it
+function findEntry(stack, key) {
+    for (let i = stack.length - 1; i >= 0; i--) {
+        if (has(stack[i], key)) {
+            return stack[i][key];
+        }
+    }
+    return undefined;
+}
+/** Term definition in object form; null if the term is explicitly unmapped, undefined if unknown */
+function findTerm(term, stack) {
+    const entry = findEntry(stack, term);
+    if (typeof entry === 'string') {
+        return { '@id': entry };
+    }
+    if (entry && typeof entry === 'object') {
+        return entry['@id'] === null ? null : entry;
+    }
+    return entry === null ? null : undefined;
+}
+/** The keyword (`@id`, `@type`...) that a key stands for, either directly or through an alias */
+function asKeyword(key, stack) {
+    var _a;
+    if (key.startsWith('@')) {
+        return key;
+    }
+    const id = (_a = findTerm(key, stack)) === null || _a === void 0 ? void 0 : _a['@id'];
+    return (id === null || id === void 0 ? void 0 : id.startsWith('@')) ? id : null;
+}
+function expandIri(value, stack, options, seen = new Set()) {
+    var _a, _b, _c;
+    if (value.startsWith('@')) {
+        return value;
+    }
+    const expandTerm = (term) => expandIri(term, stack, { vocab: true }, seen);
+    if (options.vocab && !seen.has(value)) {
+        const definition = findTerm(value, stack);
+        if (definition === null) {
+            return null;
+        }
+        const id = (_a = definition === null || definition === void 0 ? void 0 : definition['@reverse']) !== null && _a !== void 0 ? _a : definition === null || definition === void 0 ? void 0 : definition['@id'];
+        if (id && id !== value) {
+            seen.add(value);
+            return expandTerm(id);
+        }
+    }
+    const colon = value.indexOf(':');
+    if (colon > -1) {
+        const prefix = value.substring(0, colon);
+        const localPart = value.substring(colon + 1);
+        if (prefix === '_') {
+            return null;
+        }
+        if (!localPart.startsWith('//') && !seen.has(prefix) && findTerm(prefix, stack)) {
+            const expandedPrefix = expandIri(prefix, stack, { vocab: true }, new Set(seen));
+            if (expandedPrefix) {
+                return `${expandedPrefix}${localPart}`;
+            }
+        }
+        if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+            return value;
+        }
+    }
+    if (options.vocab) {
+        const vocab = findEntry(stack, '@vocab');
+        if (vocab) {
+            const expandedVocab = vocab.includes(':') ? vocab : ((_c = (_b = findTerm(vocab, stack)) === null || _b === void 0 ? void 0 : _b['@id']) !== null && _c !== void 0 ? _c : vocab);
+            return `${expandedVocab}${value}`;
+        }
+    }
+    if (options.base) {
+        const base = resolveBase(stack, options.baseUrl);
+        try {
+            return base ? new URL(value, base).toString() : null;
+        }
+        catch (_d) {
+            return null;
+        }
+    }
+    return null;
+}
+
 const defaultAugmentOptions = {
     replaceElements: true,
     ...defaultFetchResourceOptions,
 };
-function createPropertiesTable(feature, container, options = {
+const defaultTableOptions = {
     propertiesField: 'properties',
-}) {
-    const createLevel = (parent, value, addHeaders = false) => {
-        if (Array.isArray(value)) {
-            for (const entry of value) {
-                const newElem = createLevel(parent, entry);
-                newElem.classList.add('array-entry');
-            }
-            return parent;
+    maxDepth: 15,
+    maxElements: 100,
+};
+// Never cut by maxElements, since augment() needs them (e.g. for type-scoped contexts). Contexts are
+// not known when rendering, so only the usual aliases of @id and @type can be recognized.
+const ALWAYS_SHOWN = new Set(['@id', '@type', 'id', 'type']);
+const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+const plural = (count, singular, pluralForm = `${singular}s`) => `${count} ${count === 1 ? singular : pluralForm}`;
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+// {"@list": [...]} and {"@set": [...]} are displayed as plain arrays
+const unwrapContainer = (value) => {
+    if (isObject(value)) {
+        const keys = Object.keys(value);
+        if (keys.length === 1 && (keys[0] === '@list' || keys[0] === '@set')) {
+            return value[keys[0]];
         }
-        else if (value === null || typeof value === 'undefined' || typeof value !== 'object') {
-            const span = document.createElement('span');
-            span.classList.add('literal-value');
-            span.textContent = '' + value;
-            parent.appendChild(span);
-            return span;
-        }
-        else {
-            const table = document.createElement('table');
-            table.classList.add('object-table');
-            if (addHeaders) {
-                table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
+    }
+    return value;
+};
+const appendSpan = (parent, className, text) => {
+    const span = document.createElement('span');
+    span.classList.add(className);
+    span.textContent = text;
+    parent.appendChild(span);
+    return span;
+};
+// @context entries found in the data, kept out of the DOM for augment() to apply
+const embeddedContexts = new WeakMap();
+function createPropertiesTable(feature, container, options = {}) {
+    const { propertiesField, maxDepth, maxElements } = { ...defaultTableOptions, ...options };
+    const createLevel = (parent, rawValue, depth, addHeaders = false) => {
+        const value = unwrapContainer(rawValue);
+        if (isObject(value) && '@value' in value) {
+            // Value object: a single literal, plus its language or datatype
+            createLevel(parent, value['@value'], depth);
+            for (const [keyword, className] of [['@language', 'literal-language'], ['@type', 'literal-datatype']]) {
+                if (keyword in value) {
+                    appendSpan(parent, className, String(value[keyword]));
+                }
             }
-            const tbody = document.createElement('tbody');
-            Object.entries(value).forEach(([k, v]) => {
-                const row = document.createElement('tr');
-                const keyCell = document.createElement('td');
-                keyCell.classList.add('object-property');
+            return;
+        }
+        if (value === null || typeof value !== 'object') {
+            appendSpan(parent, 'literal-value', '' + value);
+            return;
+        }
+        const isArray = Array.isArray(value);
+        const entries = isArray
+            ? value.map((v, i) => [String(i), v])
+            : Object.entries(value).filter(([k]) => k !== '@context');
+        if (isArray && !entries.length) {
+            return;
+        }
+        if (depth > maxDepth && entries.length) {
+            appendSpan(parent, 'truncated-value', isArray ? plural(entries.length, 'item') : plural(entries.length, 'property', 'properties'));
+            return;
+        }
+        const table = document.createElement('table');
+        table.classList.add(isArray ? 'array-table' : 'object-table');
+        if (!isArray && '@context' in value) {
+            embeddedContexts.set(table, value['@context']);
+        }
+        if (addHeaders && !isArray) {
+            table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
+        }
+        const tbody = document.createElement('tbody');
+        const addCell = (row, ...classNames) => {
+            const cell = document.createElement('td');
+            cell.classList.add(...classNames);
+            row.appendChild(cell);
+            return cell;
+        };
+        let remaining = maxElements - (isArray ? 0 : entries.filter(([k]) => ALWAYS_SHOWN.has(k)).length);
+        const shown = entries.filter(([k]) => (!isArray && ALWAYS_SHOWN.has(k)) || remaining-- > 0);
+        for (const [k, v] of shown) {
+            const row = document.createElement('tr');
+            if (isArray) {
+                createLevel(addCell(row, 'array-value', 'array-entry'), v, depth + 1);
+            }
+            else {
+                const keyCell = addCell(row, 'object-property');
                 keyCell.setAttribute('data-property', k);
                 keyCell.textContent = k;
-                row.appendChild(keyCell);
-                const valueCell = document.createElement('td');
-                valueCell.classList.add('object-value');
-                createLevel(valueCell, v);
-                row.appendChild(valueCell);
-                tbody.appendChild(row);
-            });
-            table.appendChild(tbody);
-            parent.appendChild(table);
-            return table;
+                createLevel(addCell(row, 'object-value'), v, depth + 1);
+            }
+            tbody.appendChild(row);
         }
+        const hidden = entries.length - shown.length;
+        if (hidden) {
+            const row = document.createElement('tr');
+            const cell = addCell(row, isArray ? 'array-value' : 'truncated-cell');
+            if (!isArray) {
+                cell.colSpan = 2;
+            }
+            appendSpan(cell, 'truncated-value', isArray
+                ? plural(hidden, 'more item')
+                : plural(hidden, 'more property', 'more properties'));
+            tbody.appendChild(row);
+        }
+        table.appendChild(tbody);
+        parent.appendChild(table);
     };
     const wrapper = document.createElement('div');
     wrapper.classList.add('object-properties');
     container.appendChild(wrapper);
-    if (options.propertiesField) {
-        createLevel(wrapper, feature[options.propertiesField], true);
-    }
-    else {
-        createLevel(wrapper, feature, true);
-    }
+    createLevel(wrapper, propertiesField ? feature[propertiesField] : feature, 1, true);
 }
 async function augment(rootElem, context, options = {}) {
     const mergedOptions = { ...defaultAugmentOptions, ...options };
-    const resolveTerm = (term, contextStack, useVocab = true, useBase = false) => {
-        if (term.indexOf('://') !== -1) {
-            return { '@id': term };
+    const { baseUrl } = mergedOptions;
+    // Outermost object tables below an element (looking through arrays and wrappers)
+    const findTables = (elem) => Array.from(elem.children).flatMap(child => child.classList.contains('object-table') ? [child] : findTables(child));
+    // Literal values of a cell, not including those that belong to nested objects
+    const findLiterals = (elem) => Array.from(elem.children).flatMap(child => {
+        if (child.classList.contains('literal-value')) {
+            return [child];
         }
-        let closestVocab = null;
-        let closestBase = null;
-        for (let i = contextStack.length - 1; i >= 0; i--) {
-            if (term in contextStack[i]) {
-                let resolvedTerm = contextStack[i][term];
-                let resolvedId;
-                if (resolvedTerm === null || typeof resolvedTerm === 'undefined' || typeof resolvedTerm === 'boolean'
-                    || Array.isArray(resolvedTerm)) {
-                    continue;
-                }
-                if (typeof resolvedTerm === 'string') {
-                    if (resolvedTerm === '@type') {
-                        return { '@id': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' };
-                    }
-                    resolvedId = resolvedTerm;
-                    resolvedTerm = { '@id': resolvedTerm };
-                }
-                else if (typeof resolvedTerm === 'object' && '@id' in resolvedTerm && typeof resolvedTerm['@id'] === 'string') {
-                    resolvedId = resolvedTerm['@id'];
-                }
-                else {
-                    continue;
-                }
-                const idx = resolvedId.indexOf(':');
-                if (idx > -1) {
-                    const prefix = resolvedId.substring(0, idx);
-                    const localPart = resolvedId.substring(idx + 1);
-                    if (localPart.startsWith('//')) {
-                        // Full URI -> return
-                        return resolvedTerm;
-                    }
-                    const resolvedPrefix = resolveTerm(prefix, contextStack);
-                    if (resolvedPrefix !== null && '@id' in resolvedPrefix && typeof resolvedPrefix['@id'] === 'string') {
-                        // Prefix found and resolved
-                        resolvedTerm['@id'] = `${resolvedPrefix['@id']}${localPart}`;
-                    }
-                    return resolvedTerm;
-                }
-            }
-            if (closestVocab === null && contextStack[i]['@vocab']) {
-                closestVocab = contextStack[i]['@vocab'];
-            }
-            if (closestBase === null && contextStack[i]['@base']) {
-                closestBase = contextStack[i]['@base'];
-            }
-        }
-        if (term.indexOf(':') === -1) {
-            if (useVocab && closestVocab) {
-                return { '@id': `${closestVocab}${term}` };
-            }
-            if (useBase && closestBase) {
-                return { '@id': `${closestBase}${term}` };
-            }
-        }
-        else {
-            const idx = term.indexOf(':');
-            const prefix = term.substring(0, idx);
-            const localPart = term.substring(idx + 1);
-            if (!localPart.startsWith('//')) {
-                const resolvedPrefix = resolveTerm(prefix, contextStack);
-                if (resolvedPrefix !== null && '@id' in resolvedPrefix && typeof resolvedPrefix['@id'] === 'string') {
-                    return { '@id': `${resolvedPrefix['@id']}${localPart}` };
-                }
-            }
-        }
-        return null;
-    };
-    const findPropertyChildren = (elem) => {
-        const walker = document.createTreeWalker(elem, NodeFilter.SHOW_ELEMENT, {
-            acceptNode(node) {
-                const nodeElem = node;
-                if (node !== elem && nodeElem.classList.contains('object-value')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if (nodeElem.classList.contains('object-property')) {
-                    return NodeFilter.FILTER_ACCEPT;
-                }
-                return NodeFilter.FILTER_SKIP;
-            },
-        });
-        const result = [];
-        let cur;
-        while ((cur = walker.nextNode())) {
-            result.push(cur);
-        }
-        return result;
-    };
-    const findLiteralChildren = (elem) => {
-        const result = [];
-        const walker = document.createTreeWalker(elem, NodeFilter.SHOW_ELEMENT, {
-            acceptNode(node) {
-                const nodeElem = node;
-                if (nodeElem.classList.contains('object-property') || nodeElem.classList.contains('object-value')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if (nodeElem.classList.contains('literal-value')) {
-                    result.push(nodeElem);
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return NodeFilter.FILTER_SKIP;
-            },
-        });
-        while (walker.nextNode()) {
-        }
-        return result;
-    };
+        return child.classList.contains('object-table') ? [] : findLiterals(child);
+    });
     const updateElement = (elem, resourceUri, replaceElements = true) => {
         elem.setAttribute('data-uri', resourceUri);
         elem.classList.add('resource-loading');
@@ -536,41 +750,99 @@ async function augment(rootElem, context, options = {}) {
             elem.appendChild(link);
         }
     };
-    const augmentInner = (elem, contextStack) => {
-        var _a;
-        const propElems = findPropertyChildren(elem);
-        for (const propElem of propElems) {
-            let propertyName = null;
-            propertyName = propElem.getAttribute('data-property');
-            if (!propertyName) {
-                propertyName = propElem.textContent.trim();
-            }
-            const resolvedProperty = resolveTerm(propertyName, contextStack);
-            let newContextStack = contextStack;
-            const valueElem = (_a = propElem.parentElement) === null || _a === void 0 ? void 0 : _a.querySelector('.object-value');
-            if (resolvedProperty && '@id' in resolvedProperty && typeof resolvedProperty['@id'] === 'string') {
-                const propertyUri = resolvedProperty['@id'];
-                updateElement(propElem, propertyUri, mergedOptions.replaceElements);
-                if ('@context' in resolvedProperty) {
-                    newContextStack = [...contextStack, resolvedProperty['@context']];
-                }
-                if (resolvedProperty['@type'] === '@id' && valueElem) {
-                    const literalElems = findLiteralChildren(valueElem);
-                    literalElems.forEach(literalElem => {
-                        const resolvedLiteral = resolveTerm(literalElem.textContent.trim(), newContextStack, false, true);
-                        if (resolvedLiteral && '@id' in resolvedLiteral && typeof resolvedLiteral['@id'] === 'string') {
-                            const resourceUri = resolvedLiteral['@id'];
-                            updateElement(literalElem, resourceUri, mergedOptions.replaceElements);
-                        }
-                    });
-                }
-            }
-            if (valueElem) {
-                augmentInner(valueElem, newContextStack);
+    const linkLiterals = (valueElem, stack, expandOptions) => {
+        for (const literalElem of findLiterals(valueElem)) {
+            const iri = expandIri(literalElem.textContent.trim(), stack, { ...expandOptions, baseUrl });
+            if (iri && !iri.startsWith('@')) {
+                updateElement(literalElem, iri, mergedOptions.replaceElements);
             }
         }
     };
-    augmentInner(rootElem, [context]);
+    // The stack with the object's own context on top, if it has a loadable one
+    const pushEmbedded = async (stack, context) => {
+        try {
+            // Loading modifies the context, which belongs to the caller's data
+            const copy = JSON.parse(JSON.stringify(context));
+            const entries = await loadContextEntries(copy, { baseUrl, requestTimeout: mergedOptions.requestTimeout });
+            return entries.reduce(pushContext, stack);
+        }
+        catch (e) {
+            console.warn(`Error loading embedded context: ${e}`, { cause: e });
+            return stack;
+        }
+    };
+    const augmentNode = async (table, inheritedStack) => {
+        const embedded = embeddedContexts.get(table);
+        // Only wait when there is something to load
+        const stack = embedded === undefined ? inheritedStack : await pushEmbedded(inheritedStack, embedded);
+        const children = [];
+        const rows = Array.from(table.querySelectorAll(':scope > tbody > tr')).flatMap(row => {
+            const propElem = row.querySelector(':scope > .object-property');
+            if (!propElem) {
+                return [];
+            }
+            return [{
+                    propElem,
+                    valueElem: row.querySelector(':scope > .object-value'),
+                    name: propElem.getAttribute('data-property') || propElem.textContent.trim(),
+                }];
+        });
+        // Type-scoped contexts apply to this node only, in lexicographical order of the types
+        const types = rows
+            .filter(({ name }) => asKeyword(name, stack) === '@type')
+            .flatMap(({ valueElem }) => valueElem ? findLiterals(valueElem) : [])
+            .map(elem => elem.textContent.trim())
+            .sort();
+        const nodeStack = types.reduce((result, type) => {
+            var _a;
+            const scoped = (_a = findTerm(type, stack)) === null || _a === void 0 ? void 0 : _a['@context'];
+            return scoped === undefined ? result : pushContext(result, scoped);
+        }, stack);
+        for (const { propElem, valueElem, name } of rows) {
+            const keyword = asKeyword(name, nodeStack);
+            let childStack = stack;
+            if (keyword === '@type') {
+                // Types are resolved before applying their scoped contexts
+                if (valueElem) {
+                    linkLiterals(valueElem, stack, { vocab: true, base: true });
+                }
+                updateElement(propElem, RDF_TYPE, mergedOptions.replaceElements);
+            }
+            else if (keyword === '@id') {
+                if (valueElem) {
+                    linkLiterals(valueElem, nodeStack, { base: true });
+                }
+            }
+            else if (keyword) {
+                // Other keywords (@graph, @reverse, @nest...) keep the current context
+                childStack = nodeStack;
+            }
+            else {
+                const definition = findTerm(name, nodeStack);
+                const propertyUri = expandIri(name, nodeStack, { vocab: true });
+                if (propertyUri) {
+                    updateElement(propElem, propertyUri, mergedOptions.replaceElements);
+                }
+                if ((definition === null || definition === void 0 ? void 0 : definition['@context']) !== undefined) {
+                    childStack = pushContext(stack, definition['@context']);
+                }
+                const coercion = definition === null || definition === void 0 ? void 0 : definition['@type'];
+                if (valueElem && (coercion === '@id' || coercion === '@vocab')) {
+                    const valueStack = (definition === null || definition === void 0 ? void 0 : definition['@context']) === undefined
+                        ? nodeStack : pushContext(nodeStack, definition['@context']);
+                    linkLiterals(valueElem, valueStack, { vocab: coercion === '@vocab', base: true });
+                }
+            }
+            if (valueElem) {
+                children.push(...findTables(valueElem).map(child => augmentNode(child, childStack)));
+            }
+        }
+        await Promise.all(children);
+    };
+    const rootStack = pushContext([], context !== null && context !== void 0 ? context : {});
+    const rootTables = rootElem.classList.contains('object-table')
+        ? [rootElem] : findTables(rootElem);
+    await Promise.all(rootTables.map(table => augmentNode(table, rootStack)));
 }
 
 const WGS84_EPSG_CODES = new Set([4326, 4979]);
@@ -781,7 +1053,8 @@ const POPUP_CSS = `
   word-break: normal;
   overflow-wrap: normal;
 }
-.${POPUP_CLASS} .leaflet-popup-content .object-value {
+.${POPUP_CLASS} .leaflet-popup-content .object-value,
+.${POPUP_CLASS} .leaflet-popup-content .array-value {
   min-width: 0;
   max-width: none;
   word-break: normal;
@@ -893,7 +1166,7 @@ function recenterOnResize(popup) {
     });
 }
 async function createJsonLDGeoJSONLayer(L, data, options = {}) {
-    const { ldContext, popupOptions = {}, augmentOptions = {}, onEachFeature: userOnEachFeature, coordRefSys: coordRefSysOverride, proj4: proj4Override, crsAttribution = true, ...geoJSONOptions } = options;
+    const { ldContext, popupOptions = {}, augmentOptions = {}, baseUrl, maxDepth, maxElements, onEachFeature: userOnEachFeature, coordRefSys: coordRefSysOverride, proj4: proj4Override, crsAttribution = true, ...geoJSONOptions } = options;
     let geoData = data;
     const crsInfo = coordRefSysOverride
         ? detectCrs({ coordRefSys: coordRefSysOverride })
@@ -923,7 +1196,10 @@ async function createJsonLDGeoJSONLayer(L, data, options = {}) {
             if (!feature.properties || Object.keys(feature.properties).length === 0)
                 return;
             const container = document.createElement('div');
-            createPropertiesTable(feature, container);
+            createPropertiesTable(feature, container, {
+                ...(maxDepth !== undefined ? { maxDepth } : {}),
+                ...(maxElements !== undefined ? { maxElements } : {}),
+            });
             injectPopupCss();
             const className = [POPUP_CLASS, popupOptions.className].filter(Boolean).join(' ');
             // Large default maxWidth: the popup adapts to the table's natural width; the CSS cap (a share
@@ -936,8 +1212,8 @@ async function createJsonLDGeoJSONLayer(L, data, options = {}) {
             const contextsToMerge = [dataContext, ldContext].filter(v => v != null);
             if (contextsToMerge.length > 0) {
                 const contextArg = contextsToMerge.length === 1 ? contextsToMerge[0] : contextsToMerge;
-                loadContext(contextArg).then((resolvedContext) => {
-                    augment(container, resolvedContext, augmentOptions);
+                loadContext(contextArg, { baseUrl }).then((resolvedContext) => {
+                    augment(container, resolvedContext, { baseUrl, ...augmentOptions });
                 });
             }
         },

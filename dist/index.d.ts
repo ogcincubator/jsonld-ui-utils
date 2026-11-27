@@ -9,7 +9,8 @@ declare const _default: {
         [index: string]: any;
     }, container: HTMLElement, options?: resource.CreatePropertiesTableOptions): void;
     augment(rootElem: HTMLElement, context: import("jsonld").ContextDefinition, options?: Partial<augment.AugmentOptions>): Promise<void>;
-    loadContext(context: jsonld.Context | jsonld.ContextObject): Promise<import("jsonld").ContextDefinition>;
+    loadContextEntries(context: jsonld.Context | undefined, options?: jsonld.LoadContextOptions): Promise<jsonld.ContextEntries>;
+    loadContext(context: jsonld.Context | jsonld.ContextObject, options?: jsonld.LoadContextOptions): Promise<import("jsonld").ContextDefinition>;
     findInStore(store: import("n3").Store, subjectUri: string, predicates: string[], userLangs?: string[]): string | null;
     fetchResource(uri: string, options?: Partial<resource.FetchResourceOptions>): Promise<resource.ResourceData>;
     loadFeature(url: string): Promise<{
