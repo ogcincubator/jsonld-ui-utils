@@ -100,7 +100,7 @@ The generated elements carry CSS classes you can style:
 
 Include `dist/jsonld-ui-utils.css` (or the CDN link above) for default styling of these classes.
 
-JSON-LD keywords get special treatment: `@context` entries are hidden, value objects (`@value`) are shown as a single literal, and `@list` / `@set` as plain arrays. `augment()` also understands keyword aliases, links `@id` and `@type` values, and applies type-scoped and property-scoped contexts. `@context` entries embedded in the data are applied to their object and its descendants; relative references in them are resolved against `baseUrl`, and one that fails to load is skipped with a warning. With `propertiesField` set, only those at or below that field are seen.
+JSON-LD keywords get special treatment: `@context` entries are hidden, value objects (`@value`) are shown as a single literal, and `@list` / `@set` as plain arrays. `augment()` also understands keyword aliases, links `@id` and `@type` values, and applies type-scoped and property-scoped contexts. An object whose only keys are `@graph` and optionally `@context` is shown as the contents of `@graph`; otherwise (e.g. a named graph) `@graph` is shown as a property. `@context` entries embedded in the data are applied to their object and its descendants; relative references in them are resolved against `baseUrl`, and one that fails to load is skipped with a warning. With `propertiesField` set, only those at or below that field are seen.
 
 #### 3. Augment with semantic metadata
 

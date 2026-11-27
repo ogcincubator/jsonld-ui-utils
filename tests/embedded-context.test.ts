@@ -225,3 +225,84 @@ describe('embedded context handling', () => {
     expect(contextRequests).toEqual(['http://ctx.test/shared.json']);
   });
 });
+
+describe('@graph wrappers', () => {
+  const table = (data: any, options: Record<string, any> = {}) => {
+    const container = document.createElement('div');
+    createPropertiesTable(data, container, {propertiesField: null, ...options});
+    return container;
+  };
+  const keys = (el: Element) => Array.from(el.querySelectorAll('.object-property'), e => e.textContent);
+
+  it('show the contents of @graph in place of an object holding nothing else but @context', () => {
+    const el = table({'@context': {}, '@graph': [{a: 1}, {b: 2}]});
+    expect(keys(el)).toEqual(['a', 'b']);
+    expect(el.firstElementChild!.firstElementChild!.classList.contains('array-table')).toBe(true);
+  });
+
+  it('do so at any depth', () => {
+    expect(keys(table({p: {'@graph': [{a: 1}]}}))).toEqual(['p', 'a']);
+  });
+
+  it('keep the @graph row when the object has anything else, as in a named graph', () => {
+    expect(keys(table({'@id': 'urn:g', '@graph': [{a: 1}]}))).toEqual(['@id', '@graph', 'a']);
+    expect(keys(table({title: 't', '@graph': [{a: 1}]}))).toEqual(['title', '@graph', 'a']);
+  });
+
+  it('keep the column headers for a single object at the root', () => {
+    const el = table({'@graph': {a: 1}});
+    expect(keys(el)).toEqual(['a']);
+    expect(el.querySelector('thead')).not.toBeNull();
+  });
+
+  it('do not count as a nesting level, and still limit entries', () => {
+    const el = table({'@graph': [{a: 1}, {a: 2}, {a: 3}]}, {maxDepth: 2, maxElements: 2});
+    expect(keys(el)).toEqual(['a', 'a']);
+    expect(el.querySelector('.truncated-value')!.textContent).toBe('1 more item');
+  });
+
+  it('apply their context to every node of an array', async () => {
+    await expectSameAsJsonLd({'@context': {'@vocab': V}, '@graph': [{'@id': 'urn:a', name: 'x'}, [{other: 'y'}]]});
+  });
+
+  it('apply their context when nested, over the outer one', async () => {
+    await expectSameAsJsonLd({
+      '@context': {'@vocab': V, name: `${V}outer`},
+      p: {'@context': {name: `${V}wrapper`}, '@graph': [{name: 'x'}, {name: 'y'}]},
+      name: 'z',
+    });
+  });
+
+  it('apply both contexts to a single object, the outer one first', async () => {
+    await expectSameAsJsonLd({
+      '@context': {a: `${V}outer-a`, b: `${V}outer-b`},
+      '@graph': {'@context': {b: `${V}inner-b`}, a: 1, b: 2},
+    });
+  });
+
+  it('accumulate contexts when wrapped repeatedly', async () => {
+    await expectSameAsJsonLd({
+      '@context': {a: `${V}a`},
+      '@graph': {'@context': {b: `${V}b`}, '@graph': [{a: 1, b: 2}]},
+    });
+  });
+
+  it('apply a property-scoped context before their own', async () => {
+    await expectSameAsJsonLd({
+      '@context': {p: {'@id': `${V}p`, '@context': {a: `${V}scoped-a`, b: `${V}scoped-b`}}},
+      p: {'@context': {b: `${V}wrapper-b`}, '@graph': [{a: 1, b: 2}]},
+    });
+  });
+
+  it('apply a remote context', async () => {
+    remote['http://ctx.test/g.json'] = {'@context': {name: `${V}name`}};
+    await expectSameAsJsonLd({'@context': 'http://ctx.test/g.json', '@graph': [{name: 'x'}]});
+  });
+
+  it('work when augment() is given the array table itself', async () => {
+    const container = table({'@context': {name: `${V}name`}, '@graph': [{name: 'x'}]});
+    const arrayTable = container.querySelector('.array-table') as HTMLElement;
+    await augment(arrayTable, {});
+    expect(uris(container)).toEqual(new Set([`${V}name`]));
+  });
+});

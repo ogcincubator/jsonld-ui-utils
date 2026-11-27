@@ -5,7 +5,9 @@
     <title>JSON-LD UI enhancer</title>
     <style>
       /* Shows what each term resolved to, without hovering */
-      #embedded-contexts [data-uri]::after {
+      #embedded-contexts [data-uri]::after,
+      #graph-wrapper [data-uri]::after,
+      #named-graph [data-uri]::after {
         content: ' → ' attr(data-uri);
         font-size: smaller;
         font-weight: normal;
@@ -35,6 +37,14 @@
       undefined.
     </p>
     <div id="embedded-contexts"></div>
+
+    <h2>@graph holding a top-level array (synthetic data)</h2>
+    <p>Only <code>@context</code> and <code>@graph</code>, so the <code>@graph</code> row is skipped.</p>
+    <div id="graph-wrapper"></div>
+
+    <h2>Named graph (synthetic data)</h2>
+    <p>It has an <code>@id</code> besides <code>@graph</code>, so the <code>@graph</code> row is kept.</p>
+    <div id="named-graph"></div>
 
     <script type="module">
       import jsonUIUtils from "./src/index.ts";
@@ -108,6 +118,16 @@
         child: 'urn:example:outer:child',
         name: 'urn:example:outer:name',
       });
+
+      const graphNodes = [{'@id': 'urn:example:a', name: 'first'}, {'@id': 'urn:example:b', name: 'second'}];
+      for (const [id, doc] of [
+        ['graph-wrapper', {'@context': {name: 'urn:example:name'}, '@graph': graphNodes}],
+        ['named-graph', {'@context': {name: 'urn:example:name'}, '@id': 'urn:example:graph', '@graph': graphNodes}],
+      ]) {
+        const elem = document.getElementById(id);
+        jsonUIUtils.createPropertiesTable(doc, elem, {propertiesField: null});
+        jsonUIUtils.augment(elem, {});
+      }
     </script>
   </body>
 </html>

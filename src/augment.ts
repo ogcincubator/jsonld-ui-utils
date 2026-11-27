@@ -48,6 +48,11 @@ const unwrapContainer = (value: any): any => {
   return value;
 };
 
+// An object holding nothing but @graph (and possibly @context) just wraps its contents, typically to
+// have a top-level array next to @context. With anything else, as in a named graph, @graph has meaning.
+const isGraphWrapper = (value: any): value is Record<string, any> =>
+  isObject(value) && '@graph' in value && Object.keys(value).every(k => k === '@graph' || k === '@context');
+
 const appendSpan = (parent: HTMLElement, className: string, text: string) => {
   const span = document.createElement('span');
   span.classList.add(className);
@@ -56,15 +61,23 @@ const appendSpan = (parent: HTMLElement, className: string, text: string) => {
   return span;
 };
 
-// @context entries found in the data, kept out of the DOM for augment() to apply
-const embeddedContexts = new WeakMap<Element, Context>();
+// @context entries found in the data, kept out of the DOM for augment() to apply. Each table has the
+// ones to apply to it in order: its own, preceded by those of any @graph wrappers it replaced.
+const embeddedContexts = new WeakMap<Element, Context[]>();
 
 export function createPropertiesTable(feature: { [index: string]: any }, container: HTMLElement,
                                       options: CreatePropertiesTableOptions = {}) {
   const {propertiesField, maxDepth, maxElements} = {...defaultTableOptions, ...options};
 
-  const createLevel = (parent: HTMLElement, rawValue: any, depth: number, addHeaders = false) => {
+  const createLevel = (parent: HTMLElement, rawValue: any, depth: number, addHeaders = false,
+                       wrapperContexts: Context[] = []) => {
     const value = unwrapContainer(rawValue);
+
+    if (isGraphWrapper(value)) {
+      const contexts = '@context' in value ? [...wrapperContexts, value['@context']] : wrapperContexts;
+      createLevel(parent, value['@graph'], depth, addHeaders, contexts);
+      return;
+    }
 
     if (isObject(value) && '@value' in value) {
       // Value object: a single literal, plus its language or datatype
@@ -97,8 +110,9 @@ export function createPropertiesTable(feature: { [index: string]: any }, contain
 
     const table = document.createElement('table');
     table.classList.add(isArray ? 'array-table' : 'object-table');
-    if (!isArray && '@context' in value) {
-      embeddedContexts.set(table, value['@context']);
+    const contexts = !isArray && '@context' in value ? [...wrapperContexts, value['@context']] : wrapperContexts;
+    if (contexts.length) {
+      embeddedContexts.set(table, contexts);
     }
     if (addHeaders && !isArray) {
       table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
@@ -155,10 +169,13 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
   const mergedOptions = {...defaultAugmentOptions, ...options};
   const {baseUrl} = mergedOptions;
 
-  // Outermost object tables below an element (looking through arrays and wrappers)
+  // Object tables, and array tables that have contexts of their own
+  const isNode = (elem: Element) => elem.classList.contains('object-table') || embeddedContexts.has(elem);
+
+  // Outermost such tables below an element (looking through other arrays and wrappers)
   const findTables = (elem: Element): HTMLTableElement[] =>
     Array.from(elem.children).flatMap(child =>
-      child.classList.contains('object-table') ? [child as HTMLTableElement] : findTables(child));
+      isNode(child) ? [child as HTMLTableElement] : findTables(child));
 
   // Literal values of a cell, not including those that belong to nested objects
   const findLiterals = (elem: Element): HTMLElement[] =>
@@ -218,7 +235,7 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
     }
   };
 
-  // The stack with the object's own context on top, if it has a loadable one
+  // The stack with an embedded context on top, if it can be loaded
   const pushEmbedded = async (stack: ContextStack, context: Context) => {
     try {
       // Loading modifies the context, which belongs to the caller's data
@@ -232,9 +249,15 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
   };
 
   const augmentNode = async (table: HTMLTableElement, inheritedStack: ContextStack): Promise<void> => {
-    const embedded = embeddedContexts.get(table);
-    // Only wait when there is something to load
-    const stack = embedded === undefined ? inheritedStack : await pushEmbedded(inheritedStack, embedded);
+    let stack = inheritedStack;
+    // Only waits when there is something to load
+    for (const context of embeddedContexts.get(table) ?? []) {
+      stack = await pushEmbedded(stack, context);
+    }
+    if (table.classList.contains('array-table')) {
+      await Promise.all(findTables(table).map(child => augmentNode(child, stack)));
+      return;
+    }
     const children: Promise<void>[] = [];
     const rows = Array.from(table.querySelectorAll(':scope > tbody > tr')).flatMap(row => {
       const propElem = row.querySelector(':scope > .object-property') as HTMLElement | null;
@@ -299,7 +322,7 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
   };
 
   const rootStack = pushContext([], context ?? {});
-  const rootTables = rootElem.classList.contains('object-table')
+  const rootTables = isNode(rootElem)
     ? [rootElem as HTMLTableElement] : findTables(rootElem);
   await Promise.all(rootTables.map(table => augmentNode(table, rootStack)));
 }
