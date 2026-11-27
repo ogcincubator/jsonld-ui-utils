@@ -93,9 +93,14 @@ The generated elements carry CSS classes you can style:
 | `.object-property` | Property name cells |
 | `.object-value` | Property value cells |
 | `.literal-value` | Scalar (non-object) values |
-| `.array-entry` | Entries within an array value |
+| `.array-table` | `<table>` elements holding array values, one row per entry |
+| `.array-value`, `.array-entry` | Cells of an array table |
+| `.literal-language`, `.literal-datatype` | Language tag or datatype of a JSON-LD value object |
+| `.truncated-value` | Summary shown instead of content beyond `maxDepth` / `maxElements` |
 
 Include `dist/jsonld-ui-utils.css` (or the CDN link above) for default styling of these classes.
+
+JSON-LD keywords get special treatment: `@context` entries are hidden, value objects (`@value`) are shown as a single literal, and `@list` / `@set` as plain arrays. `augment()` also understands keyword aliases, links `@id` and `@type` values, and applies type-scoped and property-scoped contexts. `@context` entries embedded in the data are not applied yet.
 
 #### 3. Augment with semantic metadata
 
@@ -123,12 +128,15 @@ During and after augmentation, elements receive additional CSS classes:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `propertiesField` | `string` or `null` | `'properties'` | Property on `feature` to use as the root object. Set to `null` to use the entire feature. |
+| `maxDepth` | `number` | `15` | Maximum nesting levels (objects and arrays). Deeper content is not generated, only summarized. |
+| `maxElements` | `number` | `100` | Maximum entries rendered per array or object. `@id`, `@type`, `id` and `type` are always shown. |
 
 #### `augment(rootElem, context, options?)`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `replaceElements` | `boolean` | `true` | Replace element text with the resolved label. |
+| `baseUrl` | `string` | — | Base for relative identifiers, unless the context sets `@base`. |
 | `labelPredicates` | `string[]` | SKOS prefLabel, DCT/DC title, SDO/FOAF name, RDFS label | RDF predicates checked when extracting a label. |
 | `descriptionPredicates` | `string[]` | SKOS definition, DCT/DC description, RDFS comment | RDF predicates checked when extracting a description. |
 | `fallbackRainbowInstances` | `string` or `string[]` | — | One or more RAINBOW proxy base URLs tried in order when a direct fetch returns no label. |
@@ -155,9 +163,9 @@ const data = await fetchResource('https://example.org/vocab/MyTerm', {
 console.log(data.label); // e.g. "My Term"
 ```
 
-#### `loadContext(context)`
+#### `loadContext(context, options?)`
 
-Load and merge one or more JSON-LD contexts. Accepts a context object, a URL string, or an array of either:
+Load and merge one or more JSON-LD contexts. `options.baseUrl` is used to resolve relative context references; references inside a remote context resolve against that context's URL. Accepts a context object, a URL string, or an array of either:
 
 ```javascript
 const merged = await loadContext([
@@ -260,6 +268,8 @@ Per the JSON-FG scoping rules, a `coordRefSys` on an individual feature override
 | `ldContext` | `string`, `object`, or `array` | — | JSON-LD context (URL, object, or array) used to resolve property URIs. |
 | `popupOptions` | `object` | `{ maxWidth: 400 }` | Options passed to Leaflet's `bindPopup`. |
 | `augmentOptions` | `object` | `{}` | Options passed to `augment()` (see above). |
+| `baseUrl` | `string` | — | Base for relative context references and identifiers. |
+| `maxDepth`, `maxElements` | `number` | `15`, `100` | Popup table limits (see `createPropertiesTable`). |
 | `onEachFeature` | `function` | — | Called for every feature before the plugin's own logic, matching Leaflet's `onEachFeature` signature. |
 | `coordRefSys` | `string` | — | Override CRS detection with an explicit URI (e.g. `"EPSG:5514"`). |
 | `proj4` | `object` | — | Inject a specific proj4 instance instead of using the auto-resolved one. |

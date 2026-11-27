@@ -7,6 +7,12 @@ export interface JsonLDGeoJSONOptions {
   ldContext?: Context | ContextObject;
   popupOptions?: Record<string, any>;
   augmentOptions?: Partial<AugmentOptions>;
+  /** Base URL for resolving relative context references and identifiers. */
+  baseUrl?: string;
+  /** Maximum nesting levels in popup tables. Default: 15 */
+  maxDepth?: number;
+  /** Maximum entries per array or object in popup tables. Default: 100 */
+  maxElements?: number;
   onEachFeature?: (feature: any, layer: any) => void;
   /** Override the auto-detected CRS with an explicit URI (e.g. "EPSG:5514"). */
   coordRefSys?: string;
@@ -43,7 +49,8 @@ const POPUP_CSS = `
   word-break: normal;
   overflow-wrap: normal;
 }
-.${POPUP_CLASS} .leaflet-popup-content .object-value {
+.${POPUP_CLASS} .leaflet-popup-content .object-value,
+.${POPUP_CLASS} .leaflet-popup-content .array-value {
   min-width: 0;
   max-width: none;
   word-break: normal;
@@ -160,6 +167,9 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
     ldContext,
     popupOptions = {},
     augmentOptions = {},
+    baseUrl,
+    maxDepth,
+    maxElements,
     onEachFeature: userOnEachFeature,
     coordRefSys: coordRefSysOverride,
     proj4: proj4Override,
@@ -204,7 +214,10 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
       if (!feature.properties || Object.keys(feature.properties).length === 0) return;
 
       const container = document.createElement('div');
-      createPropertiesTable(feature, container);
+      createPropertiesTable(feature, container, {
+        ...(maxDepth !== undefined ? {maxDepth} : {}),
+        ...(maxElements !== undefined ? {maxElements} : {}),
+      });
       injectPopupCss();
       const className = [POPUP_CLASS, popupOptions.className].filter(Boolean).join(' ');
       // Large default maxWidth: the popup adapts to the table's natural width; the CSS cap (a share
@@ -218,8 +231,8 @@ export async function createJsonLDGeoJSONLayer(L: any, data: any, options: JsonL
       const contextsToMerge = [dataContext, ldContext].filter(v => v != null);
       if (contextsToMerge.length > 0) {
         const contextArg = contextsToMerge.length === 1 ? contextsToMerge[0] : contextsToMerge;
-        loadContext(contextArg).then((resolvedContext: any) => {
-          augment(container, resolvedContext, augmentOptions);
+        loadContext(contextArg, {baseUrl}).then((resolvedContext: any) => {
+          augment(container, resolvedContext, {baseUrl, ...augmentOptions});
         });
       }
     },

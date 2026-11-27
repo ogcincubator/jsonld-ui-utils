@@ -29,7 +29,7 @@
 }
 
 .object-table tr:nth-child(odd) > td {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: rgba(0, 0, 0, 0.03);
 }
 
 .resource-loading {
@@ -42,4 +42,34 @@
 
 .resource-error {
   color: #cc0000;
+}
+
+.array-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.array-value {
+  padding: 3px 0;
+  vertical-align: top;
+}
+
+.array-table > tbody > tr + tr > .array-value {
+  border-top: 1px solid #ddd;
+}
+
+.literal-language,
+.literal-datatype {
+  margin-left: 0.5em;
+  font-size: 0.85em;
+  color: #777;
+}
+
+.truncated-cell {
+  padding: 3px 8px;
+}
+
+.truncated-value {
+  font-style: italic;
+  color: #777;
 }

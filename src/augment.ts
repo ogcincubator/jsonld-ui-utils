@@ -4,10 +4,13 @@ import {
   fetchResource,
   FetchResourceOptions,
 } from "./resource";
-import {ContextDefinition, ExpandedTermDefinition} from "jsonld";
+import {asKeyword, ContextStack, expandIri, findTerm, pushContext} from "./context";
+import {ContextDefinition} from "jsonld";
 
 export interface AugmentOptions extends FetchResourceOptions {
   replaceElements: boolean,
+  /** Base URL for resolving relative identifiers (overridden by @base in the context) */
+  baseUrl?: string,
 }
 
 const defaultAugmentOptions: AugmentOptions = {
@@ -15,172 +18,149 @@ const defaultAugmentOptions: AugmentOptions = {
   ...defaultFetchResourceOptions,
 };
 
+const defaultTableOptions = {
+  propertiesField: 'properties' as string | null,
+  maxDepth: 15,
+  maxElements: 100,
+};
+
+// Never cut by maxElements, since augment() needs them (e.g. for type-scoped contexts). Contexts are
+// not known when rendering, so only the usual aliases of @id and @type can be recognized.
+const ALWAYS_SHOWN = new Set(['@id', '@type', 'id', 'type']);
+
+const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+
+const plural = (count: number, singular: string, pluralForm = `${singular}s`) =>
+  `${count} ${count === 1 ? singular : pluralForm}`;
+
+const isObject = (value: any): value is Record<string, any> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// {"@list": [...]} and {"@set": [...]} are displayed as plain arrays
+const unwrapContainer = (value: any): any => {
+  if (isObject(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 1 && (keys[0] === '@list' || keys[0] === '@set')) {
+      return value[keys[0]];
+    }
+  }
+  return value;
+};
+
+const appendSpan = (parent: HTMLElement, className: string, text: string) => {
+  const span = document.createElement('span');
+  span.classList.add(className);
+  span.textContent = text;
+  parent.appendChild(span);
+  return span;
+};
+
 export function createPropertiesTable(feature: { [index: string]: any }, container: HTMLElement,
-                                      options: CreatePropertiesTableOptions = {
-                                        propertiesField: 'properties',
-                                      }) {
-  const createLevel = (parent: HTMLElement, value: any, addHeaders = false) => {
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        const newElem = createLevel(parent, entry);
-        newElem.classList.add('array-entry');
+                                      options: CreatePropertiesTableOptions = {}) {
+  const {propertiesField, maxDepth, maxElements} = {...defaultTableOptions, ...options};
+
+  const createLevel = (parent: HTMLElement, rawValue: any, depth: number, addHeaders = false) => {
+    const value = unwrapContainer(rawValue);
+
+    if (isObject(value) && '@value' in value) {
+      // Value object: a single literal, plus its language or datatype
+      createLevel(parent, value['@value'], depth);
+      for (const [keyword, className] of [['@language', 'literal-language'], ['@type', 'literal-datatype']]) {
+        if (keyword in value) {
+          appendSpan(parent, className, String(value[keyword]));
+        }
       }
-      return parent;
-    } else if (value === null || typeof value === 'undefined' || typeof value !== 'object') {
-      const span = document.createElement('span');
-      span.classList.add('literal-value');
-      span.textContent = '' + value;
-      parent.appendChild(span);
-      return span;
-    } else {
-      const table = document.createElement('table');
-      table.classList.add('object-table');
-      if (addHeaders) {
-        table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
-      }
-      const tbody = document.createElement('tbody');
-      Object.entries(value).forEach(([k, v]) => {
-        const row = document.createElement('tr');
-        const keyCell = document.createElement('td');
-        keyCell.classList.add('object-property');
+      return;
+    }
+
+    if (value === null || typeof value !== 'object') {
+      appendSpan(parent, 'literal-value', '' + value);
+      return;
+    }
+
+    const isArray = Array.isArray(value);
+    const entries: [string, any][] = isArray
+      ? value.map((v: any, i: number) => [String(i), v])
+      : Object.entries(value).filter(([k]) => k !== '@context');
+    if (isArray && !entries.length) {
+      return;
+    }
+    if (depth > maxDepth && entries.length) {
+      appendSpan(parent, 'truncated-value',
+        isArray ? plural(entries.length, 'item') : plural(entries.length, 'property', 'properties'));
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.classList.add(isArray ? 'array-table' : 'object-table');
+    if (addHeaders && !isArray) {
+      table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
+    }
+    const tbody = document.createElement('tbody');
+    const addCell = (row: HTMLElement, ...classNames: string[]) => {
+      const cell = document.createElement('td');
+      cell.classList.add(...classNames);
+      row.appendChild(cell);
+      return cell;
+    };
+
+    let remaining = maxElements - (isArray ? 0 : entries.filter(([k]) => ALWAYS_SHOWN.has(k)).length);
+    const shown = entries.filter(([k]) => (!isArray && ALWAYS_SHOWN.has(k)) || remaining-- > 0);
+
+    for (const [k, v] of shown) {
+      const row = document.createElement('tr');
+      if (isArray) {
+        createLevel(addCell(row, 'array-value', 'array-entry'), v, depth + 1);
+      } else {
+        const keyCell = addCell(row, 'object-property');
         keyCell.setAttribute('data-property', k);
         keyCell.textContent = k;
-        row.appendChild(keyCell);
-        const valueCell = document.createElement('td');
-        valueCell.classList.add('object-value');
-        createLevel(valueCell, v);
-        row.appendChild(valueCell);
-        tbody.appendChild(row);
-      });
-      table.appendChild(tbody);
-      parent.appendChild(table);
-      return table;
+        createLevel(addCell(row, 'object-value'), v, depth + 1);
+      }
+      tbody.appendChild(row);
     }
+
+    const hidden = entries.length - shown.length;
+    if (hidden) {
+      const row = document.createElement('tr');
+      const cell = addCell(row, isArray ? 'array-value' : 'truncated-cell') as HTMLTableCellElement;
+      if (!isArray) {
+        cell.colSpan = 2;
+      }
+      appendSpan(cell, 'truncated-value', isArray
+        ? plural(hidden, 'more item')
+        : plural(hidden, 'more property', 'more properties'));
+      tbody.appendChild(row);
+    }
+
+    table.appendChild(tbody);
+    parent.appendChild(table);
   };
+
   const wrapper = document.createElement('div');
   wrapper.classList.add('object-properties');
   container.appendChild(wrapper);
-  if (options.propertiesField) {
-    createLevel(wrapper, feature[options.propertiesField], true);
-  } else {
-    createLevel(wrapper, feature, true);
-  }
+  createLevel(wrapper, propertiesField ? feature[propertiesField] : feature, 1, true);
 }
 
 export async function augment(rootElem: HTMLElement, context: ContextDefinition, options: Partial<AugmentOptions> = {}) {
 
   const mergedOptions = {...defaultAugmentOptions, ...options};
+  const {baseUrl} = mergedOptions;
 
-  const resolveTerm = (term: string, contextStack: ContextDefinition[],
-                       useVocab = true, useBase = false): ExpandedTermDefinition | null => {
-    if (term.indexOf('://') !== -1) {
-      return {'@id': term};
-    }
-    let closestVocab: string | null = null;
-    let closestBase: string | null = null;
-    for (let i = contextStack.length - 1; i >= 0; i--) {
-      if (term in contextStack[i]) {
-        let resolvedTerm = contextStack[i][term];
-        let resolvedId: string;
-        if (resolvedTerm === null || typeof resolvedTerm === 'undefined' || typeof resolvedTerm === 'boolean'
-          || Array.isArray(resolvedTerm)) {
-          continue;
-        }
-        if (typeof resolvedTerm === 'string') {
-          if (resolvedTerm === '@type') {
-            return {'@id': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'};
-          }
-          resolvedId = resolvedTerm;
-          resolvedTerm = {'@id': resolvedTerm};
-        } else if (typeof resolvedTerm === 'object' && '@id' in resolvedTerm && typeof resolvedTerm['@id'] === 'string') {
-          resolvedId = resolvedTerm['@id'];
-        } else {
-          continue;
-        }
-        const idx = resolvedId.indexOf(':');
-        if (idx > -1) {
-          const prefix = resolvedId.substring(0, idx);
-          const localPart = resolvedId.substring(idx + 1);
-          if (localPart.startsWith('//')) {
-            // Full URI -> return
-            return resolvedTerm;
-          }
-          const resolvedPrefix = resolveTerm(prefix, contextStack);
-          if (resolvedPrefix !== null && '@id' in resolvedPrefix && typeof resolvedPrefix['@id'] === 'string') {
-            // Prefix found and resolved
-            resolvedTerm['@id'] = `${resolvedPrefix['@id']}${localPart}`;
-          }
-          return resolvedTerm;
-        }
-      }
-      if (closestVocab === null && contextStack[i]['@vocab']) {
-        closestVocab = contextStack[i]['@vocab']!;
-      }
-      if (closestBase === null && contextStack[i]['@base']) {
-        closestBase = contextStack[i]['@base']!;
-      }
-    }
-    if (term.indexOf(':') === -1) {
-      if (useVocab && closestVocab) {
-        return {'@id': `${closestVocab}${term}`};
-      }
-      if (useBase && closestBase) {
-        return {'@id': `${closestBase}${term}`};
-      }
-    } else {
-      const idx = term.indexOf(':');
-      const prefix = term.substring(0, idx);
-      const localPart = term.substring(idx + 1);
-      if (!localPart.startsWith('//')) {
-        const resolvedPrefix = resolveTerm(prefix, contextStack);
-        if (resolvedPrefix !== null && '@id' in resolvedPrefix && typeof resolvedPrefix['@id'] === 'string') {
-          return {'@id': `${resolvedPrefix['@id']}${localPart}`};
-        }
-      }
-    }
-    return null;
-  };
+  // Outermost object tables below an element (looking through arrays and wrappers)
+  const findTables = (elem: Element): HTMLTableElement[] =>
+    Array.from(elem.children).flatMap(child =>
+      child.classList.contains('object-table') ? [child as HTMLTableElement] : findTables(child));
 
-  const findPropertyChildren = (elem: HTMLElement) => {
-    const walker = document.createTreeWalker(elem, NodeFilter.SHOW_ELEMENT, {
-      acceptNode(node: Node): number {
-        const nodeElem = node as HTMLElement;
-        if (node !== elem && nodeElem.classList.contains('object-value')) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        if (nodeElem.classList.contains('object-property')) {
-          return NodeFilter.FILTER_ACCEPT;
-        }
-        return NodeFilter.FILTER_SKIP;
-      },
+  // Literal values of a cell, not including those that belong to nested objects
+  const findLiterals = (elem: Element): HTMLElement[] =>
+    Array.from(elem.children).flatMap(child => {
+      if (child.classList.contains('literal-value')) {
+        return [child as HTMLElement];
+      }
+      return child.classList.contains('object-table') ? [] : findLiterals(child);
     });
-    const result: HTMLElement[] = [];
-    let cur;
-    while ((cur = walker.nextNode())) {
-      result.push(cur as HTMLElement);
-    }
-    return result;
-  };
-
-  const findLiteralChildren = (elem: HTMLElement) => {
-    const result: HTMLElement[] = [];
-    const walker = document.createTreeWalker(elem, NodeFilter.SHOW_ELEMENT, {
-      acceptNode(node: Node): number {
-        const nodeElem = node as HTMLElement;
-        if (nodeElem.classList.contains('object-property') || nodeElem.classList.contains('object-value')) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        if (nodeElem.classList.contains('literal-value')) {
-          result.push(nodeElem);
-          return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_SKIP;
-      },
-    });
-    while (walker.nextNode()) {
-    }
-    return result;
-  };
 
   const updateElement = (elem: HTMLElement, resourceUri: string,
                          replaceElements = true) => {
@@ -222,39 +202,79 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
     }
   };
 
-  const augmentInner = (elem: HTMLElement, contextStack: ContextDefinition[]) => {
-    const propElems = findPropertyChildren(elem);
-    for (const propElem of propElems) {
-      let propertyName: string | null = null;
-      propertyName = propElem.getAttribute('data-property');
-      if (!propertyName) {
-        propertyName = propElem.textContent.trim();
-      }
-      const resolvedProperty = resolveTerm(propertyName, contextStack);
-      let newContextStack = contextStack;
-      const valueElem = propElem.parentElement?.querySelector('.object-value') as HTMLElement;
-      if (resolvedProperty && '@id' in resolvedProperty && typeof resolvedProperty['@id'] === 'string') {
-        const propertyUri = resolvedProperty['@id'];
-        updateElement(propElem, propertyUri, mergedOptions.replaceElements);
-        if ('@context' in resolvedProperty) {
-          newContextStack = [...contextStack, resolvedProperty['@context']!];
-        }
-        if (resolvedProperty['@type'] === '@id' && valueElem) {
-          const literalElems = findLiteralChildren(valueElem);
-          literalElems.forEach(literalElem => {
-            const resolvedLiteral = resolveTerm(literalElem.textContent.trim(),
-              newContextStack, false, true);
-            if (resolvedLiteral && '@id' in resolvedLiteral && typeof resolvedLiteral['@id'] === 'string') {
-              const resourceUri = resolvedLiteral['@id'];
-              updateElement(literalElem, resourceUri, mergedOptions.replaceElements);
-            }
-          });
-        }
-      }
-      if (valueElem) {
-        augmentInner(valueElem as HTMLElement, newContextStack);
+  const linkLiterals = (valueElem: Element, stack: ContextStack, expandOptions: { vocab?: boolean, base?: boolean }) => {
+    for (const literalElem of findLiterals(valueElem)) {
+      const iri = expandIri(literalElem.textContent!.trim(), stack, {...expandOptions, baseUrl});
+      if (iri && !iri.startsWith('@')) {
+        updateElement(literalElem, iri, mergedOptions.replaceElements);
       }
     }
   };
-  augmentInner(rootElem, [context]);
+
+  const augmentNode = (table: HTMLTableElement, stack: ContextStack) => {
+    const rows = Array.from(table.querySelectorAll(':scope > tbody > tr')).flatMap(row => {
+      const propElem = row.querySelector(':scope > .object-property') as HTMLElement | null;
+      if (!propElem) {
+        return [];
+      }
+      return [{
+        propElem,
+        valueElem: row.querySelector(':scope > .object-value'),
+        name: propElem.getAttribute('data-property') || propElem.textContent!.trim(),
+      }];
+    });
+
+    // Type-scoped contexts apply to this node only, in lexicographical order of the types
+    const types = rows
+      .filter(({name}) => asKeyword(name, stack) === '@type')
+      .flatMap(({valueElem}) => valueElem ? findLiterals(valueElem) : [])
+      .map(elem => elem.textContent!.trim())
+      .sort();
+    const nodeStack = types.reduce((result, type) => {
+      const scoped = findTerm(type, stack)?.['@context'];
+      return scoped === undefined ? result : pushContext(result, scoped);
+    }, stack);
+
+    for (const {propElem, valueElem, name} of rows) {
+      const keyword = asKeyword(name, nodeStack);
+      let childStack = stack;
+      if (keyword === '@type') {
+        // Types are resolved before applying their scoped contexts
+        if (valueElem) {
+          linkLiterals(valueElem, stack, {vocab: true, base: true});
+        }
+        updateElement(propElem, RDF_TYPE, mergedOptions.replaceElements);
+      } else if (keyword === '@id') {
+        if (valueElem) {
+          linkLiterals(valueElem, nodeStack, {base: true});
+        }
+      } else if (keyword) {
+        // Other keywords (@graph, @reverse, @nest...) keep the current context
+        childStack = nodeStack;
+      } else {
+        const definition = findTerm(name, nodeStack);
+        const propertyUri = expandIri(name, nodeStack, {vocab: true});
+        if (propertyUri) {
+          updateElement(propElem, propertyUri, mergedOptions.replaceElements);
+        }
+        if (definition?.['@context'] !== undefined) {
+          childStack = pushContext(stack, definition['@context']);
+        }
+        const coercion = definition?.['@type'];
+        if (valueElem && (coercion === '@id' || coercion === '@vocab')) {
+          const valueStack = definition?.['@context'] === undefined
+            ? nodeStack : pushContext(nodeStack, definition['@context']);
+          linkLiterals(valueElem, valueStack, {vocab: coercion === '@vocab', base: true});
+        }
+      }
+      if (valueElem) {
+        findTables(valueElem).forEach(child => augmentNode(child, childStack));
+      }
+    }
+  };
+
+  const rootStack = pushContext([], context ?? {});
+  const rootTables = rootElem.classList.contains('object-table')
+    ? [rootElem as HTMLTableElement] : findTables(rootElem);
+  rootTables.forEach(table => augmentNode(table, rootStack));
 }

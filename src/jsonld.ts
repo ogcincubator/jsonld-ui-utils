@@ -44,45 +44,63 @@ const mergeContexts = (definitions: ContextDefinition[]) => {
 
 const urlCache = new Map<string, Promise<ContextDefinition>>();
 
-export async function loadContext(context: Context | ContextObject) {
-  const walk = async (definition: object, refChain?: string[]) => {
+export interface LoadContextOptions {
+  /** Base URL for resolving relative context references */
+  baseUrl?: string,
+}
+
+const resolveUrl = (url: string, baseUrl?: string) => {
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return url;
+  }
+};
+
+export async function loadContext(context: Context | ContextObject, options: LoadContextOptions = {}) {
+  const walk = async (definition: object, refChain?: string[], baseUrl?: string) => {
     for (const [key, value] of Object.entries(definition)) {
       if (key === '@context') {
         // @ts-ignore
-        definition[key] = await load(value as Context, refChain);
+        definition[key] = await load(value as Context, refChain, baseUrl);
       } else if (typeof value === 'object' && value !== null) {
-        await walk(value, refChain);
+        await walk(value, refChain, baseUrl);
       }
     }
   };
 
-  const load = async (context: Context, refChain?: string[]): Promise<ContextDefinition> => {
+  const load = async (context: Context, refChain?: string[], baseUrl?: string): Promise<ContextDefinition> => {
     if (context === null || typeof context === 'undefined') {
       return {};
     }
     if (Array.isArray(context)) {
       // fetch and merge
-      const contextEntries = await Promise.all(context.map(e => load(e, refChain)));
+      const contextEntries = await Promise.all(context.map(e => load(e, refChain, baseUrl)));
       return mergeContexts(contextEntries);
     } else if (typeof context === 'object') {
-      await walk(context, refChain);
+      await walk(context, refChain, baseUrl);
       return context;
     } else {
-      if (refChain?.includes(context)) {
-        throw new Error('Circular dependencies found: ' + refChain.join(' -> ') + ' -> ' + context);
+      const url = resolveUrl(context, baseUrl);
+      if (refChain?.includes(url)) {
+        throw new Error('Circular dependencies found: ' + refChain.join(' -> ') + ' -> ' + url);
       }
-      const newRefChain = Array.isArray(refChain) ? refChain?.slice() : [];
-      newRefChain.push(context);
-      if (!urlCache.has(context)) {
-        urlCache.set(context, jsonFetch(context).then(obj => load(obj['@context'], newRefChain)));
+      const newRefChain = [...(refChain ?? []), url];
+      if (!urlCache.has(url)) {
+        // Relative references inside a remote context are resolved against that context's own URL
+        urlCache.set(url, jsonFetch(url).then(async obj => {
+          // @base is ignored in remote contexts
+          const {'@base': _, ...loaded} = await load(obj['@context'], newRefChain, url) as any;
+          return loaded as ContextDefinition;
+        }));
       }
-      return urlCache.get(context) as Promise<ContextDefinition>;
+      return urlCache.get(url) as Promise<ContextDefinition>;
     }
   };
 
   if (typeof context === 'object' && context !== null && '@context' in context) {
-    return load((context as ContextObject)['@context']);
+    return load((context as ContextObject)['@context'], undefined, options.baseUrl);
   } else {
-    return load(context);
+    return load(context, undefined, options.baseUrl);
   }
 }

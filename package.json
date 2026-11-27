@@ -30,6 +30,7 @@
     "@types/jsonld": "^1.5.15",
     "@types/n3": "^1.21.1",
     "baseline-browser-mapping": "^2.10.10",
+    "happy-dom": "^21.0.4",
     "jsonld": "^8.3.2",
     "proj4": "^2.0.0",
     "rollup": "^4.53.2",

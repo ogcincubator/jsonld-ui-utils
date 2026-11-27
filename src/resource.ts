@@ -19,6 +19,10 @@ export const defaultFetchResourceOptions: FetchResourceOptions = {
 
 export interface CreatePropertiesTableOptions {
   propertiesField?: string | null,
+  /** Maximum nesting levels (objects and arrays) to render. Default: 15 */
+  maxDepth?: number,
+  /** Maximum entries to render per array or object. Default: 100 */
+  maxElements?: number,
 }
 
 export interface ResourceData {
@@ -268,7 +272,7 @@ export async function loadFeature(url: string) {
     throw new Error(`Could not load feature ${url}: ${response.status} - ${response.statusText}`);
   }
   const feature = await response.json();
-  const context = await loadContext(feature);
+  const context = await loadContext(feature, {baseUrl: response.url || url});
   return {
     feature,
     context,

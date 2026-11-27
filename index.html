@@ -16,10 +16,17 @@
     <h2>Parcel feature (CURIE values)</h2>
     <div id="parcel-feature"></div>
 
+    <h2>Observation collection (whole document, not a Feature)</h2>
+    <div id="observation-collection"></div>
+
+    <h2>Depth and element limits (synthetic data, maxDepth: 4, maxElements: 5)</h2>
+    <div id="limits"></div>
+
     <script type="module">
       import jsonUIUtils from "./src/index.ts";
+      import "./src/jsonld-ui-utils.css";
 
-      jsonUIUtils.loadFeature('https://ogcincubator.github.io/bblocks-examples/build/tests/bbr/examples/observation/vectorObservationFeature/example_1_1.jsonld')
+      jsonUIUtils.loadFeature('https://ogcincubator.github.io/bblocks-examples/build/tests/bbr/examples/observation/vectorObservationFeature/observation.jsonld')
               .then(({feature, context}) => {
                 const rootElem = document.getElementById('feature');
                 jsonUIUtils.createPropertiesTable(feature, rootElem);
@@ -56,6 +63,23 @@
           fallbackSparqlEndpoint: 'https://defs-hosted.opengis.net/prez-hosted-b/sparql',
         });
       });
+
+      const collectionUrl = 'https://opengeospatial.github.io/ogcapi-sosa/build/tests/sosa/properties/observationCollection/example_3_1.jsonld';
+
+      jsonUIUtils.loadFeature(collectionUrl).then(({feature, context}) => {
+        const rootElem = document.getElementById('observation-collection');
+        jsonUIUtils.createPropertiesTable(feature, rootElem, {propertiesField: null});
+        jsonUIUtils.augment(rootElem, context, {
+          baseUrl: collectionUrl,
+          fallbackSparqlEndpoints: 'https://defs-hosted.opengis.net/prez-hosted-b/sparql',
+        });
+      });
+
+      jsonUIUtils.createPropertiesTable({
+        deeplyNested: {level2: {level3: {level4: {level5: 'not rendered', other: 'not rendered'}}}},
+        longArray: Array.from({length: 40}, (_, i) => i + 1),
+        wideObject: Object.fromEntries(Array.from({length: 30}, (_, i) => [`property${i + 1}`, i + 1])),
+      }, document.getElementById('limits'), {propertiesField: null, maxDepth: 4, maxElements: 5});
     </script>
   </body>
 </html>
