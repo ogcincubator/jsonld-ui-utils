@@ -100,7 +100,7 @@ The generated elements carry CSS classes you can style:
 
 Include `dist/jsonld-ui-utils.css` (or the CDN link above) for default styling of these classes.
 
-JSON-LD keywords get special treatment: `@context` entries are hidden, value objects (`@value`) are shown as a single literal, and `@list` / `@set` as plain arrays. `augment()` also understands keyword aliases, links `@id` and `@type` values, and applies type-scoped and property-scoped contexts. `@context` entries embedded in the data are not applied yet.
+JSON-LD keywords get special treatment: `@context` entries are hidden, value objects (`@value`) are shown as a single literal, and `@list` / `@set` as plain arrays. `augment()` also understands keyword aliases, links `@id` and `@type` values, and applies type-scoped and property-scoped contexts. `@context` entries embedded in the data are applied to their object and its descendants; relative references in them are resolved against `baseUrl`, and one that fails to load is skipped with a warning. With `propertiesField` set, only those at or below that field are seen.
 
 #### 3. Augment with semantic metadata
 
@@ -168,7 +168,7 @@ console.log(data.label); // e.g. "My Term"
 
 #### `loadContext(context, options?)`
 
-Load and merge one or more JSON-LD contexts. `options.baseUrl` is used to resolve relative context references; references inside a remote context resolve against that context's URL. Accepts a context object, a URL string, or an array of either:
+Load and merge one or more JSON-LD contexts. `options.baseUrl` is used to resolve relative context references; references inside a remote context resolve against that context's URL. `options.requestTimeout` (default 10000 ms) limits each remote request. Accepts a context object, a URL string, or an array of either:
 
 ```javascript
 const merged = await loadContext([

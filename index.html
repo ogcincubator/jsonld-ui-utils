@@ -4,7 +4,13 @@
     <meta charset="utf-8">
     <title>JSON-LD UI enhancer</title>
     <style>
-
+      /* Shows what each term resolved to, without hovering */
+      #embedded-contexts [data-uri]::after {
+        content: ' → ' attr(data-uri);
+        font-size: smaller;
+        font-weight: normal;
+        color: #666;
+      }
     </style>
   </head>
   <body>
@@ -21,6 +27,14 @@
 
     <h2>Depth and element limits (synthetic data, maxDepth: 4, maxElements: 5)</h2>
     <div id="limits"></div>
+
+    <h2>Embedded @context entries (synthetic data)</h2>
+    <p>
+      <code>inherits</code> uses the root context, <code>overrides</code> redefines <code>name</code> for itself and its
+      children, and <code>resets</code> starts over with <code>"@context": [null, ...]</code>, leaving <code>name</code>
+      undefined.
+    </p>
+    <div id="embedded-contexts"></div>
 
     <script type="module">
       import jsonUIUtils from "./src/index.ts";
@@ -80,6 +94,20 @@
         longArray: Array.from({length: 40}, (_, i) => i + 1),
         wideObject: Object.fromEntries(Array.from({length: 30}, (_, i) => [`property${i + 1}`, i + 1])),
       }, document.getElementById('limits'), {propertiesField: null, maxDepth: 4, maxElements: 5});
+
+      const embeddedElem = document.getElementById('embedded-contexts');
+      jsonUIUtils.createPropertiesTable({
+        inherits: {name: 'a', child: {name: 'b'}},
+        overrides: {'@context': {name: 'urn:example:inner:name'}, name: 'c', child: {name: 'd'}},
+        resets: {'@context': [null, {other: 'urn:example:new:other'}], name: 'e', other: 'f'},
+      }, embeddedElem, {propertiesField: null});
+      jsonUIUtils.augment(embeddedElem, {
+        inherits: 'urn:example:outer:inherits',
+        overrides: 'urn:example:outer:overrides',
+        resets: 'urn:example:outer:resets',
+        child: 'urn:example:outer:child',
+        name: 'urn:example:outer:name',
+      });
     </script>
   </body>
 </html>

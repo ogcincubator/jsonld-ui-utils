@@ -115,7 +115,7 @@ describe('loadContext baseUrl', () => {
       'http://base.test/ctx/a.json': {'@context': ['b.json', {'@base': 'http://ignored.test/', a: 'x:a'}]},
       'http://base.test/ctx/b.json': {'@context': {b: 'x:b'}},
     };
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({json: async () => docs[url]})));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ok: true, json: async () => docs[url]})));
     const context = await loadContext('ctx/a.json', {baseUrl: 'http://base.test/doc.json'});
     expect(context).toEqual({a: 'x:a', b: 'x:b'});
   });

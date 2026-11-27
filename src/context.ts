@@ -32,6 +32,24 @@ export function pushContext(stack: ContextStack, context: any): ContextStack {
   return typeof context === 'object' ? [...stack, context] : stack;
 }
 
+// Each @base is resolved against the previous one, starting at the document's base URL
+function resolveBase(stack: ContextStack, baseUrl?: string): string | null | undefined {
+  return stack.reduce<string | null | undefined>((base, context) => {
+    if (!has(context, '@base')) {
+      return base;
+    }
+    const value = (context as any)['@base'];
+    if (value === null) {
+      return null;
+    }
+    try {
+      return new URL(value, base ?? undefined).toString();
+    } catch {
+      return null;
+    }
+  }, baseUrl);
+}
+
 // Innermost value of a context entry; undefined if no context in the stack declares it
 function findEntry(stack: ContextStack, key: string): any {
   for (let i = stack.length - 1; i >= 0; i--) {
@@ -109,12 +127,8 @@ export function expandIri(value: string, stack: ContextStack, options: ExpandOpt
   }
 
   if (options.base) {
-    const contextBase = findEntry(stack, '@base');
-    if (contextBase === null) {
-      return null;
-    }
+    const base = resolveBase(stack, options.baseUrl);
     try {
-      const base = contextBase === undefined ? options.baseUrl : new URL(contextBase, options.baseUrl).toString();
       return base ? new URL(value, base).toString() : null;
     } catch {
       return null;

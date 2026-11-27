@@ -6,6 +6,7 @@ import {
 } from "./resource";
 import {asKeyword, ContextStack, expandIri, findTerm, pushContext} from "./context";
 import {ContextDefinition} from "jsonld";
+import {Context, loadContextEntries} from "./jsonld";
 
 export interface AugmentOptions extends FetchResourceOptions {
   replaceElements: boolean,
@@ -55,6 +56,9 @@ const appendSpan = (parent: HTMLElement, className: string, text: string) => {
   return span;
 };
 
+// @context entries found in the data, kept out of the DOM for augment() to apply
+const embeddedContexts = new WeakMap<Element, Context>();
+
 export function createPropertiesTable(feature: { [index: string]: any }, container: HTMLElement,
                                       options: CreatePropertiesTableOptions = {}) {
   const {propertiesField, maxDepth, maxElements} = {...defaultTableOptions, ...options};
@@ -93,6 +97,9 @@ export function createPropertiesTable(feature: { [index: string]: any }, contain
 
     const table = document.createElement('table');
     table.classList.add(isArray ? 'array-table' : 'object-table');
+    if (!isArray && '@context' in value) {
+      embeddedContexts.set(table, value['@context']);
+    }
     if (addHeaders && !isArray) {
       table.innerHTML = '<thead><tr><th>Property</th><th>Value</th></tr></thead>';
     }
@@ -211,7 +218,24 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
     }
   };
 
-  const augmentNode = (table: HTMLTableElement, stack: ContextStack) => {
+  // The stack with the object's own context on top, if it has a loadable one
+  const pushEmbedded = async (stack: ContextStack, context: Context) => {
+    try {
+      // Loading modifies the context, which belongs to the caller's data
+      const copy = JSON.parse(JSON.stringify(context));
+      const entries = await loadContextEntries(copy, {baseUrl, requestTimeout: mergedOptions.requestTimeout});
+      return entries.reduce(pushContext, stack);
+    } catch (e) {
+      console.warn(`Error loading embedded context: ${e}`, {cause: e});
+      return stack;
+    }
+  };
+
+  const augmentNode = async (table: HTMLTableElement, inheritedStack: ContextStack): Promise<void> => {
+    const embedded = embeddedContexts.get(table);
+    // Only wait when there is something to load
+    const stack = embedded === undefined ? inheritedStack : await pushEmbedded(inheritedStack, embedded);
+    const children: Promise<void>[] = [];
     const rows = Array.from(table.querySelectorAll(':scope > tbody > tr')).flatMap(row => {
       const propElem = row.querySelector(':scope > .object-property') as HTMLElement | null;
       if (!propElem) {
@@ -268,13 +292,14 @@ export async function augment(rootElem: HTMLElement, context: ContextDefinition,
         }
       }
       if (valueElem) {
-        findTables(valueElem).forEach(child => augmentNode(child, childStack));
+        children.push(...findTables(valueElem).map(child => augmentNode(child, childStack)));
       }
     }
+    await Promise.all(children);
   };
 
   const rootStack = pushContext([], context ?? {});
   const rootTables = rootElem.classList.contains('object-table')
     ? [rootElem as HTMLTableElement] : findTables(rootElem);
-  rootTables.forEach(table => augmentNode(table, rootStack));
+  await Promise.all(rootTables.map(table => augmentNode(table, rootStack)));
 }
